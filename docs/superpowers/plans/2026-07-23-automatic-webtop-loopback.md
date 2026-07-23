@@ -1197,7 +1197,7 @@ rtk git commit -m "feat: documenta loopback automatico"
 - Consumes: all completed slices.
 - Produces: a clean, reproducible, release-ready branch.
 
-- [ ] **Step 1: Inspect commits and worktree**
+- [x] **Step 1: Inspect commits and worktree**
 
 ```bash
 rtk git log --oneline --decorate -12
@@ -1207,7 +1207,7 @@ rtk git diff main...HEAD --stat
 
 Expected: only scoped commits exist and the worktree is clean.
 
-- [ ] **Step 2: Re-run the fast release gate from a clean state**
+- [x] **Step 2: Re-run the fast release gate from a clean state**
 
 ```bash
 rtk make test
@@ -1218,7 +1218,7 @@ rtk git diff --check
 
 Expected: all commands exit zero.
 
-- [ ] **Step 3: Inspect final runtime artifacts**
+- [x] **Step 3: Inspect final runtime artifacts**
 
 ```bash
 rtk docker run --rm wktbox/webtop:dev wktbox-loopback --help
@@ -1229,7 +1229,7 @@ rtk docker image inspect wktbox/webtop:dev \
 Expected: the helper is executable and the original Webtop entrypoint/labels
 remain present.
 
-- [ ] **Step 4: Record durable architecture memory**
+- [x] **Step 4: Record durable architecture memory**
 
 Add one consolidated Graphiti memory for project `wktbox` describing the
 required sidecar, shared Webtop namespace, DinD TLS discovery, published-host
