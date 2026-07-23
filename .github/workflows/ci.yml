@@ -12,8 +12,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
           cache: true
@@ -25,6 +25,10 @@ jobs:
         run: go test -race ./...
       - name: Build release targets
         run: ./scripts/build.sh ci
+      - name: Test release archives
+        run: bash tests/release/build_test.sh
+      - name: Test Unix installer
+        run: bash tests/install/unix_test.sh
       - name: Build runtime images
         run: |
           docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
@@ -39,3 +43,14 @@ jobs:
         run: bash tests/e2e/automatic_loopback.sh
       - name: Run two-worktree E2E
         run: bash tests/e2e/two_worktrees.sh
+
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+      - name: Test PowerShell installer
+        shell: pwsh
+        run: Invoke-Pester tests/install/windows.Tests.ps1 -CI

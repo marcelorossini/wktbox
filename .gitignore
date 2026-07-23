@@ -4,6 +4,7 @@
 /.wktbox.local.yml
 /.wktbox-artifacts/
 /.worktrees/
+/testResults.xml
 /.idea/
 /.vscode/
 *.tmp

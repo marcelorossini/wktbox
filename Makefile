@@ -7,7 +7,7 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: build e2e fmt images release release-build release-verify spike test test-race vet
+.PHONY: build e2e fmt images install-test release release-build release-verify spike test test-race vet
 
 build:
 	mkdir -p bin
@@ -31,6 +31,9 @@ vet:
 images:
 	docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
 	docker build -t wktbox/gateway:dev images/gateway
+
+install-test:
+	bash tests/install/unix_test.sh
 
 e2e:
 	bash tests/e2e/automatic_loopback.sh
