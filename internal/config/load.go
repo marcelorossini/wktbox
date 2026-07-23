@@ -8,8 +8,13 @@ import (
 	"go.yaml.in/yaml/v4"
 )
 
-func Load(worktree string, environ map[string]string, overrides Overrides) (Config, error) {
-	cfg := Default()
+func Load(
+	worktree string,
+	environ map[string]string,
+	overrides Overrides,
+	buildVersion string,
+) (Config, error) {
+	cfg := Default(buildVersion)
 	paths := configPaths(worktree, overrides.ConfigPath)
 	for _, candidate := range paths {
 		required := overrides.ConfigPath != ""

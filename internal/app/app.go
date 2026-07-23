@@ -197,7 +197,7 @@ func (application *App) Resolve(
 		ConfigPath: request.ConfigPath,
 		EnvFile:    request.EnvFile,
 		EnvTarget:  request.EnvTarget,
-	})
+	}, application.version)
 	if err != nil {
 		return Resolution{}, err
 	}

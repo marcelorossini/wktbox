@@ -168,6 +168,40 @@ func TestResolveAndEnsureBuildSandboxSpecFromWorktree(t *testing.T) {
 	}
 }
 
+func TestResolveUsesReleaseVersionForRuntimeImages(t *testing.T) {
+	worktree := t.TempDir()
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: worktree},
+		Manager:           &fakeManager{},
+		InteractiveRunner: &interactiveRunner{},
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+		Version:           "0.1.0",
+	})
+
+	resolution, err := service.Resolve(
+		context.Background(),
+		app.Request{Path: worktree},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Spec.Config.Runtime.WebtopImage !=
+		"ghcr.io/marcelorossini/wktbox/webtop:0.1.0" {
+		t.Fatalf(
+			"webtop image = %q",
+			resolution.Spec.Config.Runtime.WebtopImage,
+		)
+	}
+	if resolution.Spec.Config.Runtime.GatewayImage !=
+		"ghcr.io/marcelorossini/wktbox/gateway:0.1.0" {
+		t.Fatalf(
+			"gateway image = %q",
+			resolution.Spec.Config.Runtime.GatewayImage,
+		)
+	}
+}
+
 func TestRunUsesExecutorAndTouchesBoxAfterChildExit(t *testing.T) {
 	manager := &fakeManager{}
 	interactive := &interactiveRunner{code: 17}
