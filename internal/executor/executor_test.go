@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"wktbox/internal/executor"
@@ -142,6 +143,23 @@ func TestRunRejectsEmptyCommand(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected empty command error")
+	}
+}
+
+func TestInvalidEnvironmentErrorDoesNotRevealAssignmentValue(t *testing.T) {
+	_, err := executor.New(&recordingInteractiveRunner{}).Run(
+		context.Background(),
+		testBox(),
+		[]string{"true"},
+		executor.Options{
+			Environment: []string{"INVALID-KEY=do-not-leak"},
+		},
+	)
+	if err == nil {
+		t.Fatal("expected invalid environment error")
+	}
+	if strings.Contains(err.Error(), "do-not-leak") {
+		t.Fatalf("error leaked environment value: %v", err)
 	}
 }
 

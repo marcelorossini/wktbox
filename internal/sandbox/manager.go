@@ -11,6 +11,7 @@ import (
 
 	"wktbox/internal/compose"
 	"wktbox/internal/lock"
+	"wktbox/internal/ports"
 	"wktbox/internal/state"
 )
 
@@ -38,6 +39,22 @@ func NewManager(
 }
 
 func (manager Manager) Ensure(ctx context.Context, spec Spec) (state.BoxRecord, error) {
+	return manager.ensure(ctx, spec, nil)
+}
+
+func (manager Manager) EnsureAllocated(
+	ctx context.Context,
+	spec Spec,
+	allocator ports.Allocator,
+) (state.BoxRecord, error) {
+	return manager.ensure(ctx, spec, &allocator)
+}
+
+func (manager Manager) ensure(
+	ctx context.Context,
+	spec Spec,
+	allocator *ports.Allocator,
+) (state.BoxRecord, error) {
 	unlock, err := manager.lockBox(ctx, spec.ID)
 	if err != nil {
 		return state.BoxRecord{}, err
@@ -49,6 +66,24 @@ func (manager Manager) Ensure(ctx context.Context, spec Spec) (state.BoxRecord, 
 		return state.BoxRecord{}, err
 	}
 	existing, exists := current.Boxes[spec.ID]
+	if spec.Ports.Size == 0 && exists && existing.Ports.Size != 0 {
+		spec.Ports = existing.Ports
+	}
+	if spec.Ports.Size == 0 {
+		if allocator == nil {
+			return state.BoxRecord{}, errors.New("sandbox port block is required")
+		}
+		used := make([]ports.Block, 0, len(current.Boxes))
+		for id, record := range current.Boxes {
+			if id != spec.ID && record.Ports.Size != 0 {
+				used = append(used, record.Ports)
+			}
+		}
+		spec.Ports, err = allocator.Reserve(ctx, used)
+		if err != nil {
+			return state.BoxRecord{}, fmt.Errorf("reserve sandbox ports: %w", err)
+		}
+	}
 	createdAt := manager.now().UTC()
 	if exists && !existing.CreatedAt.IsZero() {
 		createdAt = existing.CreatedAt
@@ -64,8 +99,13 @@ func (manager Manager) Ensure(ctx context.Context, spec Spec) (state.BoxRecord, 
 	}
 	record := existing
 	record.ID = spec.ID
-	if record.Name == "" {
+	if spec.Name != "" {
+		record.Name = spec.Name
+	} else if record.Name == "" {
 		record.Name = filepath.Base(spec.Worktree)
+	}
+	if spec.Branch != "" {
+		record.Branch = spec.Branch
 	}
 	record.Worktree = spec.Worktree
 	record.ProjectName = "wktbox-" + spec.ID
@@ -240,6 +280,26 @@ func (manager Manager) Restart(ctx context.Context, id string) error {
 		)
 	}
 	record.Status = state.Ready
+	current.Boxes[id] = record
+	return manager.store.Save(ctx, current)
+}
+
+func (manager Manager) Touch(ctx context.Context, id string) error {
+	unlock, err := manager.lockBox(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	current, err := manager.loadAndReconcile(ctx)
+	if err != nil {
+		return err
+	}
+	record, exists := current.Boxes[id]
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrBoxNotFound, id)
+	}
+	record.LastUsedAt = manager.now().UTC()
 	current.Boxes[id] = record
 	return manager.store.Save(ctx, current)
 }

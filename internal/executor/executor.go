@@ -74,9 +74,12 @@ func (executor Executor) Run(
 		arguments = append(arguments, "-T")
 	}
 	arguments = append(arguments, "-w", containerCWD)
-	for _, value := range options.Environment {
+	for index, value := range options.Environment {
 		if !validEnvironmentAssignment(value) {
-			return -1, fmt.Errorf("invalid command environment %q; expected KEY=VALUE", value)
+			return -1, fmt.Errorf(
+				"invalid command environment at position %d; expected KEY=VALUE",
+				index+1,
+			)
 		}
 		arguments = append(arguments, "--env", value)
 	}

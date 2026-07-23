@@ -108,6 +108,41 @@ func TestEnsureCreatesStartsAndPersistsReadyBox(t *testing.T) {
 	}
 }
 
+func TestEnsureAllocatedReservesNextFreeBlockUnderManagerLock(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	existing := existingRecord(t, store, state.Ready)
+	saveState(t, store, existing)
+	backend := &fakeBackend{
+		status: readyComposeStatus(),
+		managed: []compose.ManagedProject{{
+			ID:          existing.ID,
+			Worktree:    existing.Worktree,
+			ProjectName: existing.ProjectName,
+			State:       compose.Running,
+			Healthy:     true,
+			Ports:       existing.Ports,
+		}},
+	}
+	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
+	spec := testSpec()
+	spec.ID = "bbbbbbbbbbbb"
+	spec.Worktree = "/repo/feature-billing"
+	spec.Ports = ports.Block{}
+
+	got, err := manager.EnsureAllocated(
+		context.Background(),
+		spec,
+		ports.NewAllocator(23000, 10),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Ports != (ports.Block{Start: 23010, Size: 10}) {
+		t.Fatalf("ports = %#v", got.Ports)
+	}
+}
+
 func TestEnsureIsIdempotentWhenDockerIsAlreadyReady(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
@@ -165,6 +200,42 @@ func TestStopPreservesGeneratedFilesAndMarksStopped(t *testing.T) {
 	saved, _ := store.Load(context.Background())
 	if saved.Boxes[record.ID].Status != state.Stopped {
 		t.Fatalf("saved status = %s", saved.Boxes[record.ID].Status)
+	}
+}
+
+func TestTouchUpdatesLastUsedAtWithoutChangingLifecycleState(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	record := existingRecord(t, store, state.Ready)
+	record.LastUsedAt = time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	saveState(t, store, record)
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	backend := &fakeBackend{managed: []compose.ManagedProject{{
+		ID:          record.ID,
+		Worktree:    record.Worktree,
+		ProjectName: record.ProjectName,
+		State:       compose.Running,
+		Healthy:     true,
+		Ports:       record.Ports,
+	}}}
+	manager := sandbox.NewManager(backend, store, lock.NewManager(root), func() time.Time {
+		return now
+	})
+
+	if err := manager.Touch(context.Background(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := saved.Boxes[record.ID]
+	if !got.LastUsedAt.Equal(now) {
+		t.Fatalf("last used = %s", got.LastUsedAt)
+	}
+	if got.Status != state.Ready {
+		t.Fatalf("status = %s", got.Status)
 	}
 }
 

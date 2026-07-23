@@ -1,0 +1,264 @@
+package app_test
+
+import (
+	"context"
+	"io"
+	"reflect"
+	"strings"
+	"testing"
+
+	"wktbox/internal/app"
+	"wktbox/internal/executor"
+	"wktbox/internal/ports"
+	"wktbox/internal/process"
+	"wktbox/internal/sandbox"
+	"wktbox/internal/state"
+)
+
+type fakeManager struct {
+	ensuredSpec sandbox.Spec
+	box         state.BoxRecord
+	touched     []string
+}
+
+func (manager *fakeManager) EnsureAllocated(
+	_ context.Context,
+	spec sandbox.Spec,
+	_ ports.Allocator,
+) (state.BoxRecord, error) {
+	manager.ensuredSpec = spec
+	manager.box = state.BoxRecord{
+		ID:                     spec.ID,
+		Name:                   spec.Name,
+		Branch:                 spec.Branch,
+		Worktree:               spec.Worktree,
+		ProjectName:            "wktbox-" + spec.ID,
+		Status:                 state.Ready,
+		Ports:                  ports.Block{Start: 23000, Size: 10},
+		ComposePath:            "/state/compose.yml",
+		SandboxEnvPath:         "/state/sandbox.env",
+		ProjectEnvOverridePath: "/state/env.override.yml",
+		GatewayEnabled:         spec.Config.Gateway.Enabled,
+	}
+	return manager.box, nil
+}
+
+func (manager *fakeManager) Inspect(context.Context, string) (state.BoxRecord, error) {
+	return manager.box, nil
+}
+
+func (manager *fakeManager) List(context.Context) ([]state.BoxRecord, error) {
+	return []state.BoxRecord{manager.box}, nil
+}
+
+func (manager *fakeManager) Stop(context.Context, string) error {
+	return nil
+}
+
+func (manager *fakeManager) Restart(context.Context, string) error {
+	return nil
+}
+
+func (manager *fakeManager) Destroy(context.Context, string) error {
+	return nil
+}
+
+func (manager *fakeManager) Touch(_ context.Context, id string) error {
+	manager.touched = append(manager.touched, id)
+	return nil
+}
+
+type discoveryRunner struct {
+	worktree string
+}
+
+func (runner discoveryRunner) Run(
+	_ context.Context,
+	_ string,
+	arguments ...string,
+) (process.Result, error) {
+	joined := strings.Join(arguments, " ")
+	switch {
+	case strings.Contains(joined, "--show-toplevel"):
+		return process.Result{Stdout: runner.worktree + "\n"}, nil
+	case strings.Contains(joined, "--git-common-dir"):
+		return process.Result{Stdout: runner.worktree + "/.git\n"}, nil
+	case strings.Contains(joined, "--git-dir"):
+		return process.Result{Stdout: runner.worktree + "/.git/worktrees/feature\n"}, nil
+	case strings.Contains(joined, "branch --show-current"):
+		return process.Result{Stdout: "feature/auth\n"}, nil
+	default:
+		return process.Result{}, nil
+	}
+}
+
+type interactiveRunner struct {
+	invocations []executor.Invocation
+	code        int
+}
+
+func (runner *interactiveRunner) Run(
+	_ context.Context,
+	invocation executor.Invocation,
+) (int, error) {
+	runner.invocations = append(runner.invocations, invocation)
+	return runner.code, nil
+}
+
+func TestResolveAndEnsureBuildSandboxSpecFromWorktree(t *testing.T) {
+	worktree := t.TempDir()
+	manager := &fakeManager{}
+	interactive := &interactiveRunner{}
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: worktree},
+		Manager:           manager,
+		InteractiveRunner: interactive,
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+		Version:           "test",
+		Timezone:          "America/Sao_Paulo",
+		PUID:              1000,
+		PGID:              1000,
+	})
+
+	resolution, err := service.Resolve(context.Background(), app.Request{Path: worktree})
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := service.Ensure(context.Background(), resolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resolution.ID == "" || len(resolution.ID) != 12 {
+		t.Fatalf("ID = %q", resolution.ID)
+	}
+	if box.ID != resolution.ID {
+		t.Fatalf("box ID = %q, resolution ID = %q", box.ID, resolution.ID)
+	}
+	if manager.ensuredSpec.Worktree != worktree ||
+		manager.ensuredSpec.Branch != "feature/auth" ||
+		manager.ensuredSpec.Version != "test" ||
+		manager.ensuredSpec.Timezone != "America/Sao_Paulo" {
+		t.Fatalf("spec = %#v", manager.ensuredSpec)
+	}
+}
+
+func TestRunUsesExecutorAndTouchesBoxAfterChildExit(t *testing.T) {
+	manager := &fakeManager{}
+	interactive := &interactiveRunner{code: 17}
+	service := app.New(app.Options{
+		Manager:           manager,
+		InteractiveRunner: interactive,
+		Allocator:         ports.NewAllocator(23000, 10),
+	})
+	box := state.BoxRecord{
+		ID:             "a4f8c9137d2b",
+		Worktree:       "/repo",
+		ProjectName:    "wktbox-a4f8c9137d2b",
+		ComposePath:    "/state/compose.yml",
+		SandboxEnvPath: "/state/sandbox.env",
+	}
+
+	code, err := service.Run(
+		context.Background(),
+		box,
+		[]string{"printf", "%s", "value with spaces"},
+		executor.Options{HostCWD: "/repo"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 17 {
+		t.Fatalf("code = %d", code)
+	}
+	if len(interactive.invocations) != 1 {
+		t.Fatalf("invocations = %d", len(interactive.invocations))
+	}
+	gotArgs := interactive.invocations[0].Arguments
+	wantSuffix := []string{"webtop", "printf", "%s", "value with spaces"}
+	if !reflect.DeepEqual(gotArgs[len(gotArgs)-len(wantSuffix):], wantSuffix) {
+		t.Fatalf("arguments = %#v", gotArgs)
+	}
+	if !reflect.DeepEqual(manager.touched, []string{box.ID}) {
+		t.Fatalf("touches = %#v", manager.touched)
+	}
+}
+
+func TestLogsStreamsDockerComposeArgumentsWithoutShell(t *testing.T) {
+	manager := &fakeManager{}
+	interactive := &interactiveRunner{}
+	service := app.New(app.Options{
+		Manager:           manager,
+		InteractiveRunner: interactive,
+		Allocator:         ports.NewAllocator(23000, 10),
+	})
+	box := state.BoxRecord{
+		ID:                     "a4f8c9137d2b",
+		ProjectName:            "wktbox-a4f8c9137d2b",
+		ComposePath:            "/state/compose.yml",
+		ProjectEnvOverridePath: "/state/env.override.yml",
+		SandboxEnvPath:         "/state/sandbox.env",
+		GatewayEnabled:         true,
+	}
+
+	code, err := service.Logs(
+		context.Background(),
+		box,
+		"docker",
+		true,
+		io.Discard,
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if len(interactive.invocations) != 1 {
+		t.Fatalf("invocations = %d", len(interactive.invocations))
+	}
+	got := interactive.invocations[0]
+	if got.Name != "docker" {
+		t.Fatalf("name = %q", got.Name)
+	}
+	want := []string{
+		"compose", "-p", box.ProjectName,
+		"--env-file", box.SandboxEnvPath,
+		"-f", box.ComposePath,
+		"-f", box.ProjectEnvOverridePath,
+		"--profile", "gateway",
+		"logs", "--follow", "docker",
+	}
+	if !reflect.DeepEqual(got.Arguments, want) {
+		t.Fatalf("arguments = %#v, want %#v", got.Arguments, want)
+	}
+}
+
+func TestResolutionCarriesFlagOverridesWithoutReadingCommandEnvironment(t *testing.T) {
+	worktree := t.TempDir()
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: worktree},
+		Manager:           &fakeManager{},
+		InteractiveRunner: &interactiveRunner{},
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+		Version:           "test",
+		Timezone:          "UTC",
+	})
+
+	_, err := service.Resolve(context.Background(), app.Request{
+		Path:       worktree,
+		ConfigPath: "missing.yml",
+		Environment: []string{
+			"WKTBOX_ENV_FILE=must-not-affect-config.env",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected explicit missing config error")
+	}
+	if !strings.Contains(err.Error(), "missing.yml") {
+		t.Fatalf("error = %v", err)
+	}
+}

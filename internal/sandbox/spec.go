@@ -8,6 +8,8 @@ import (
 
 type Spec struct {
 	ID         string
+	Name       string
+	Branch     string
 	Version    string
 	Worktree   string
 	Ports      ports.Block
