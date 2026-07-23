@@ -3,6 +3,7 @@
 /.cache/
 /.wktbox.local.yml
 /.wktbox-artifacts/
+/.worktrees/
 /.idea/
 /.vscode/
 *.tmp
