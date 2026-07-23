@@ -117,5 +117,11 @@ As flags `--env-file` e `--env-target` vencem as variáveis correspondentes.
 `--env KEY=VALUE` não altera a configuração persistente: só é repassado ao
 comando filho.
 
+A resolução é declarativa e ocorre em toda invocação. Um `--env-file` usado
+anteriormente não vira default persistente: repita a flag ao reconciliar a box
+ou registre `environment.file` em `.wktbox.local.yml`. Sem flag, variável,
+configuração ou `.env` na worktree, o resultado intencional é nenhum project
+env.
+
 O flag `--profile` existe para compatibilidade futura, mas qualquer valor
 nomeado é rejeitado explicitamente no schema v1.

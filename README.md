@@ -62,6 +62,10 @@ Para montar um arquivo externo como `/workspace/.env`, somente leitura:
 wktbox --env-file "/segredos/feature.env" run -- docker compose up -d
 ```
 
+Flags são resolvidas em cada invocação. Se a box precisar ser recriada ou
+reconciliada, repita `--env-file` ou configure `environment.file` em
+`.wktbox.local.yml`; omitir todas as fontes significa “nenhum project env”.
+
 ## duas worktrees em paralelo
 
 Duas worktrees podem executar o mesmo Compose com as mesmas portas internas:

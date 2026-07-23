@@ -183,8 +183,9 @@ set -e
 [[ "$stopped_error" == *"wktbox run --"* ]]
 
 warm_started="$SECONDS"
-"$wktbox" --path "$worktree_a" up
-"$wktbox" --path "$worktree_a" run -- docker compose up -d --wait
+"$wktbox" --path "$worktree_a" --env-file "$env_a" up
+"$wktbox" --path "$worktree_a" --env-file "$env_a" run -- \
+  docker compose up -d --wait
 warm_seconds="$((SECONDS - warm_started))"
 [[ "$("$wktbox" --path "$worktree_a" exec -- \
   docker compose exec -T database cat /data/marker)" == "box-a" ]]
