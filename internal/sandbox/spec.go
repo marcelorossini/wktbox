@@ -3,6 +3,7 @@ package sandbox
 import (
 	"wktbox/internal/config"
 	"wktbox/internal/environment"
+	"wktbox/internal/gitbridge"
 	"wktbox/internal/ports"
 )
 
@@ -15,6 +16,7 @@ type Spec struct {
 	Ports      ports.Block
 	Config     config.Config
 	ProjectEnv environment.ProjectEnv
+	GitBridge  gitbridge.Bridge
 	Timezone   string
 	PUID       int
 	PGID       int

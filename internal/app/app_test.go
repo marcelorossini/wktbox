@@ -3,11 +3,13 @@ package app_test
 import (
 	"context"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"wktbox/internal/app"
+	"wktbox/internal/doctor"
 	"wktbox/internal/executor"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
@@ -95,6 +97,8 @@ func (runner discoveryRunner) Run(
 type interactiveRunner struct {
 	invocations []executor.Invocation
 	code        int
+	codes       []int
+	stdout      []string
 }
 
 func (runner *interactiveRunner) Run(
@@ -102,7 +106,15 @@ func (runner *interactiveRunner) Run(
 	invocation executor.Invocation,
 ) (int, error) {
 	runner.invocations = append(runner.invocations, invocation)
-	return runner.code, nil
+	index := len(runner.invocations) - 1
+	code := runner.code
+	if index < len(runner.codes) {
+		code = runner.codes[index]
+	}
+	if index < len(runner.stdout) && invocation.Stdout != nil {
+		_, _ = io.WriteString(invocation.Stdout, runner.stdout[index])
+	}
+	return code, nil
 }
 
 func TestResolveAndEnsureBuildSandboxSpecFromWorktree(t *testing.T) {
@@ -185,6 +197,98 @@ func TestRunUsesExecutorAndTouchesBoxAfterChildExit(t *testing.T) {
 	}
 }
 
+func TestMountedGitModeIsRenderedAndValidatedInsideWebtop(t *testing.T) {
+	worktree := t.TempDir()
+	if err := os.WriteFile(
+		worktree+"/.wktbox.yml",
+		[]byte("version: 1\ngit:\n  mode: mounted\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeManager{}
+	interactive := &interactiveRunner{
+		codes:  []int{0, 1, 0},
+		stdout: []string{"", "", "/wktbox/git-common\n"},
+	}
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: worktree},
+		Manager:           manager,
+		InteractiveRunner: interactive,
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+		Version:           "test",
+		Timezone:          "UTC",
+	})
+
+	resolution, err := service.Resolve(context.Background(), app.Request{Path: worktree})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Ensure(context.Background(), resolution); err != nil {
+		t.Fatal(err)
+	}
+
+	if !manager.ensuredSpec.GitBridge.RequiresValidation ||
+		len(manager.ensuredSpec.GitBridge.Mounts) != 1 {
+		t.Fatalf("bridge = %#v", manager.ensuredSpec.GitBridge)
+	}
+	gotCommands := make([][]string, 0, len(interactive.invocations))
+	for _, invocation := range interactive.invocations {
+		arguments := invocation.Arguments
+		webtopIndex := -1
+		for index, argument := range arguments {
+			if argument == "webtop" {
+				webtopIndex = index
+			}
+		}
+		gotCommands = append(gotCommands, arguments[webtopIndex+1:])
+	}
+	wantCommands := [][]string{
+		{"git", "status", "--short"},
+		{"git", "diff", "--quiet"},
+		{"git", "rev-parse", "--git-common-dir"},
+	}
+	if !reflect.DeepEqual(gotCommands, wantCommands) {
+		t.Fatalf("commands = %#v", gotCommands)
+	}
+}
+
+func TestMountedGitValidationFailureDoesNotSilentlyFallBackToHost(t *testing.T) {
+	worktree := t.TempDir()
+	if err := os.WriteFile(
+		worktree+"/.wktbox.yml",
+		[]byte("version: 1\ngit:\n  mode: mounted\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeManager{}
+	interactive := &interactiveRunner{codes: []int{128}}
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: worktree},
+		Manager:           manager,
+		InteractiveRunner: interactive,
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+	})
+	resolution, err := service.Resolve(context.Background(), app.Request{Path: worktree})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = service.Ensure(context.Background(), resolution)
+
+	if err == nil ||
+		!strings.Contains(err.Error(), "git.mode: mounted") ||
+		!strings.Contains(err.Error(), "git.mode: host") {
+		t.Fatalf("error = %v", err)
+	}
+	if !manager.ensuredSpec.GitBridge.RequiresValidation {
+		t.Fatal("manager received a silent host-mode fallback")
+	}
+}
+
 func TestLogsStreamsDockerComposeArgumentsWithoutShell(t *testing.T) {
 	manager := &fakeManager{}
 	interactive := &interactiveRunner{}
@@ -260,5 +364,35 @@ func TestResolutionCarriesFlagOverridesWithoutReadingCommandEnvironment(t *testi
 	}
 	if !strings.Contains(err.Error(), "missing.yml") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDoctorReturnsEveryCheckEvenWhenDockerProbesFail(t *testing.T) {
+	worktree := t.TempDir()
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: worktree},
+		Manager:           &fakeManager{},
+		InteractiveRunner: &interactiveRunner{},
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+		StateRoot:         t.TempDir(),
+		DoctorFreeDisk: func(string) (uint64, error) {
+			return 1 << 40, nil
+		},
+	})
+
+	value, err := service.Doctor(context.Background(), app.Request{Path: worktree})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := value.(doctor.Report)
+	if !ok {
+		t.Fatalf("report type = %T", value)
+	}
+	if len(report.Checks) != doctor.RequiredCheckCount {
+		t.Fatalf("checks = %d", len(report.Checks))
+	}
+	if report.OK {
+		t.Fatal("empty Docker version probes should fail")
 	}
 }

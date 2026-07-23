@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,8 +16,10 @@ import (
 	"wktbox/internal/compose"
 	"wktbox/internal/config"
 	"wktbox/internal/discovery"
+	"wktbox/internal/doctor"
 	"wktbox/internal/environment"
 	"wktbox/internal/executor"
+	"wktbox/internal/gitbridge"
 	"wktbox/internal/identity"
 	"wktbox/internal/lock"
 	"wktbox/internal/output"
@@ -26,8 +29,6 @@ import (
 	"wktbox/internal/state"
 	"wktbox/internal/version"
 )
-
-var ErrDoctorUnavailable = errors.New("doctor is not available")
 
 type Request struct {
 	Path        string
@@ -67,6 +68,9 @@ type Options struct {
 	PUID              int
 	PGID              int
 	OpenURL           func(context.Context, string) error
+	StateRoot         string
+	DoctorMinimumDisk uint64
+	DoctorFreeDisk    func(string) (uint64, error)
 }
 
 type App struct {
@@ -81,6 +85,9 @@ type App struct {
 	puid              int
 	pgid              int
 	openURL           func(context.Context, string) error
+	stateRoot         string
+	doctorMinimumDisk uint64
+	doctorFreeDisk    func(string) (uint64, error)
 }
 
 func New(options Options) *App {
@@ -128,6 +135,9 @@ func New(options Options) *App {
 		puid:              options.PUID,
 		pgid:              options.PGID,
 		openURL:           openURL,
+		stateRoot:         options.StateRoot,
+		doctorMinimumDisk: options.DoctorMinimumDisk,
+		doctorFreeDisk:    options.DoctorFreeDisk,
 	}
 }
 
@@ -153,6 +163,7 @@ func NewDefault() (*App, error) {
 		Allocator:         ports.NewAllocator(23000, 10),
 		PUID:              puid,
 		PGID:              pgid,
+		StateRoot:         root,
 	}), nil
 }
 
@@ -184,6 +195,10 @@ func (application *App) Resolve(
 	if err != nil {
 		return Resolution{}, err
 	}
+	bridge, err := gitbridge.Prepare(worktree, cfg.Git.Mode)
+	if err != nil {
+		return Resolution{}, err
+	}
 	platform := identity.Unix
 	if runtime.GOOS == "windows" {
 		platform = identity.Windows
@@ -197,6 +212,7 @@ func (application *App) Resolve(
 		Worktree:   worktree.Path,
 		Config:     cfg,
 		ProjectEnv: projectEnv,
+		GitBridge:  bridge,
 		Timezone:   application.timezone,
 		PUID:       application.puid,
 		PGID:       application.pgid,
@@ -216,7 +232,23 @@ func (application *App) Ensure(
 	if application.manager == nil {
 		return state.BoxRecord{}, errors.New("sandbox manager is not configured")
 	}
-	return application.manager.EnsureAllocated(ctx, resolution.Spec, application.allocator)
+	box, err := application.manager.EnsureAllocated(
+		ctx,
+		resolution.Spec,
+		application.allocator,
+	)
+	if err != nil {
+		return state.BoxRecord{}, err
+	}
+	if resolution.Spec.GitBridge.RequiresValidation {
+		if err := gitbridge.Validate(ctx, gitValidationRunner{
+			application: application,
+			box:         box,
+		}); err != nil {
+			return state.BoxRecord{}, err
+		}
+	}
+	return box, nil
 }
 
 func (application *App) Inspect(
@@ -314,8 +346,57 @@ func (application *App) Open(ctx context.Context, box state.BoxRecord) error {
 	return nil
 }
 
-func (application *App) Doctor(context.Context, Request) (any, error) {
-	return nil, fmt.Errorf("%w; run a newer build or use the host checks from the documentation", ErrDoctorUnavailable)
+func (application *App) Doctor(ctx context.Context, request Request) (any, error) {
+	usedPorts := make([]ports.Block, 0)
+	if application.manager != nil {
+		if boxes, err := application.manager.List(ctx); err == nil {
+			for _, box := range boxes {
+				if box.Ports.Size != 0 {
+					usedPorts = append(usedPorts, box.Ports)
+				}
+			}
+		}
+	}
+
+	var dindTLS func(context.Context) error
+	var gitValidation func(context.Context) error
+	dindImage := ""
+	if resolution, err := application.Resolve(ctx, request); err == nil {
+		dindImage = resolution.Spec.Config.Runtime.DindImage
+		if application.manager != nil {
+			if box, inspectErr := application.manager.Inspect(ctx, resolution.ID); inspectErr == nil &&
+				box.Status == state.Ready {
+				dindTLS = func(checkContext context.Context) error {
+					return application.validateDindTLS(checkContext, box)
+				}
+				if resolution.Spec.GitBridge.RequiresValidation {
+					gitValidation = func(checkContext context.Context) error {
+						return gitbridge.Validate(checkContext, gitValidationRunner{
+							application: application,
+							box:         box,
+						})
+					}
+				}
+			}
+		}
+	}
+	probes := doctor.NewHostProbes(doctor.HostInput{
+		Runner:        application.processRunner,
+		Path:          request.Path,
+		ConfigPath:    request.ConfigPath,
+		EnvFile:       request.EnvFile,
+		EnvTarget:     request.EnvTarget,
+		Environ:       application.environ,
+		Allocator:     application.allocator,
+		UsedPorts:     usedPorts,
+		StateRoot:     application.stateRoot,
+		DindImage:     dindImage,
+		MinimumDisk:   application.doctorMinimumDisk,
+		FreeDisk:      application.doctorFreeDisk,
+		DindTLS:       dindTLS,
+		GitValidation: gitValidation,
+	})
+	return doctor.Run(ctx, doctor.Input{Probes: probes}), nil
 }
 
 func (application *App) touch(ctx context.Context, id string) error {
@@ -399,4 +480,57 @@ func openLoopbackURL(ctx context.Context, url string) error {
 		return err
 	}
 	return nil
+}
+
+func (application *App) validateDindTLS(
+	ctx context.Context,
+	box state.BoxRecord,
+) error {
+	result, err := gitValidationRunner{
+		application: application,
+		box:         box,
+	}.Run(ctx, []string{"docker", "info"})
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		detail := strings.TrimSpace(result.Stderr)
+		if detail == "" {
+			detail = strings.TrimSpace(result.Stdout)
+		}
+		if detail == "" {
+			detail = fmt.Sprintf("exit code %d", result.ExitCode)
+		}
+		return errors.New(detail)
+	}
+	return nil
+}
+
+type gitValidationRunner struct {
+	application *App
+	box         state.BoxRecord
+}
+
+func (runner gitValidationRunner) Run(
+	ctx context.Context,
+	command []string,
+) (process.Result, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := runner.application.executor.Run(
+		ctx,
+		runner.box,
+		command,
+		executor.Options{
+			HostCWD: runner.box.Worktree,
+			TTY:     false,
+			Stdout:  &stdout,
+			Stderr:  &stderr,
+		},
+	)
+	return process.Result{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		ExitCode: code,
+	}, err
 }

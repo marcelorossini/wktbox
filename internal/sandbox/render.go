@@ -22,7 +22,8 @@ type projectEnvOverride struct {
 }
 
 type overrideService struct {
-	Volumes []overrideVolume `yaml:"volumes"`
+	Environment map[string]string `yaml:"environment,omitempty"`
+	Volumes     []overrideVolume  `yaml:"volumes,omitempty"`
 }
 
 type overrideVolume struct {
@@ -55,8 +56,10 @@ func Render(directory string, spec Spec) (Files, error) {
 	}
 
 	overridePath := filepath.Join(directory, "project-env.override.yml")
-	if spec.ProjectEnv.Mount {
-		override, err := renderProjectEnvOverride(spec)
+	if spec.ProjectEnv.Mount ||
+		len(spec.GitBridge.Mounts) != 0 ||
+		len(spec.GitBridge.Environment) != 0 {
+		override, err := renderRuntimeOverride(spec)
 		if err != nil {
 			return Files{}, err
 		}
@@ -128,18 +131,37 @@ func renderSandboxEnv(spec Spec) []byte {
 	return []byte(output.String())
 }
 
-func renderProjectEnvOverride(spec Spec) ([]byte, error) {
-	mount := overrideVolume{
-		Type:     "bind",
-		Source:   spec.ProjectEnv.Source,
-		Target:   spec.ProjectEnv.Target,
-		ReadOnly: true,
-	}
+func renderRuntimeOverride(spec Spec) ([]byte, error) {
 	document := projectEnvOverride{
-		Services: map[string]overrideService{
-			"docker": {Volumes: []overrideVolume{mount}},
-			"webtop": {Volumes: []overrideVolume{mount}},
-		},
+		Services: make(map[string]overrideService),
+	}
+	if spec.ProjectEnv.Mount {
+		mount := overrideVolume{
+			Type:     "bind",
+			Source:   spec.ProjectEnv.Source,
+			Target:   spec.ProjectEnv.Target,
+			ReadOnly: true,
+		}
+		document.Services["docker"] = overrideService{Volumes: []overrideVolume{mount}}
+		document.Services["webtop"] = overrideService{Volumes: []overrideVolume{mount}}
+	}
+	if len(spec.GitBridge.Mounts) != 0 || len(spec.GitBridge.Environment) != 0 {
+		webtop := document.Services["webtop"]
+		for _, mount := range spec.GitBridge.Mounts {
+			webtop.Volumes = append(webtop.Volumes, overrideVolume{
+				Type:     "bind",
+				Source:   mount.Source,
+				Target:   mount.Target,
+				ReadOnly: mount.ReadOnly,
+			})
+		}
+		if len(spec.GitBridge.Environment) != 0 {
+			webtop.Environment = make(map[string]string, len(spec.GitBridge.Environment))
+			for key, value := range spec.GitBridge.Environment {
+				webtop.Environment[key] = value
+			}
+		}
+		document.Services["webtop"] = webtop
 	}
 	data, err := yaml.Marshal(document)
 	if err != nil {

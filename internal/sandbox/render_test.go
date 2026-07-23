@@ -3,6 +3,7 @@ package sandbox_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 	"wktbox/internal/config"
 	"wktbox/internal/environment"
+	"wktbox/internal/gitbridge"
 	"wktbox/internal/ports"
 	"wktbox/internal/sandbox"
 )
@@ -19,8 +21,9 @@ type composeDocument struct {
 }
 
 type composeService struct {
-	Labels  map[string]string `yaml:"labels"`
-	Volumes []any             `yaml:"volumes"`
+	Labels      map[string]string `yaml:"labels"`
+	Environment map[string]string `yaml:"environment"`
+	Volumes     []any             `yaml:"volumes"`
 }
 
 func TestRenderMountsWorkspaceInDockerAndWebtop(t *testing.T) {
@@ -119,6 +122,40 @@ func TestRenderWithoutProjectEnvRemovesStaleOverride(t *testing.T) {
 	}
 	if got := files.ComposeFiles(); len(got) != 1 || got[0] != files.ComposePath {
 		t.Fatalf("compose files = %#v", got)
+	}
+}
+
+func TestRenderMountedGitBridgeOnlyOnWebtop(t *testing.T) {
+	spec := testSpec()
+	spec.GitBridge = gitbridge.Bridge{
+		Mounts: []gitbridge.Mount{{
+			Source: "/repo/.git",
+			Target: "/wktbox/git-common",
+		}},
+		Environment: map[string]string{
+			"GIT_WORK_TREE":  "/workspace",
+			"GIT_DIR":        "/wktbox/git-common/worktrees/feature",
+			"GIT_COMMON_DIR": "/wktbox/git-common",
+		},
+		RequiresValidation: true,
+	}
+
+	files, err := sandbox.Render(t.TempDir(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files.ProjectEnvOverridePath == "" {
+		t.Fatal("runtime override path is empty")
+	}
+	document := readCompose(t, files.ProjectEnvOverridePath)
+	webtop := document.Services["webtop"]
+	assertBind(t, webtop.Volumes, "/repo/.git", "/wktbox/git-common", false)
+	if !reflect.DeepEqual(webtop.Environment, spec.GitBridge.Environment) {
+		t.Fatalf("environment = %#v", webtop.Environment)
+	}
+	if docker := document.Services["docker"]; len(docker.Volumes) != 0 ||
+		len(docker.Environment) != 0 {
+		t.Fatalf("Git metadata exposed to DinD: %#v", docker)
 	}
 }
 
