@@ -13,6 +13,7 @@ import (
 	"wktbox/internal/app"
 	"wktbox/internal/discovery"
 	"wktbox/internal/executor"
+	"wktbox/internal/loopback"
 	"wktbox/internal/output"
 	"wktbox/internal/sandbox"
 	"wktbox/internal/state"
@@ -43,6 +44,7 @@ type Service interface {
 	Inspect(context.Context, app.Resolution) (state.BoxRecord, error)
 	List(context.Context) ([]state.BoxRecord, error)
 	Run(context.Context, state.BoxRecord, []string, executor.Options) (int, error)
+	SyncLoopback(context.Context, state.BoxRecord) (loopback.Status, error)
 	Logs(context.Context, state.BoxRecord, string, bool, io.Writer, io.Writer) (int, error)
 	Stop(context.Context, app.Resolution) error
 	Restart(context.Context, app.Resolution) error
@@ -161,6 +163,7 @@ func (commands commandSet) run() *cobra.Command {
 		"Ensure the box is ready and execute a child command",
 		true,
 		nil,
+		true,
 	)
 }
 
@@ -170,6 +173,7 @@ func (commands commandSet) exec() *cobra.Command {
 		"Execute a child command in an already-ready box",
 		false,
 		nil,
+		false,
 	)
 }
 
@@ -179,6 +183,7 @@ func (commands commandSet) compose() *cobra.Command {
 		"Run Docker Compose inside the isolated daemon",
 		true,
 		[]string{"docker", "compose"},
+		true,
 	)
 }
 
@@ -187,6 +192,7 @@ func (commands commandSet) child(
 	short string,
 	ensure bool,
 	prefix []string,
+	syncLoopback bool,
 ) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
@@ -211,7 +217,7 @@ func (commands commandSet) child(
 			}
 			child := append([]string{}, prefix...)
 			child = append(child, arguments...)
-			return commands.runChild(command.Context(), box, child)
+			return commands.runChild(command.Context(), box, child, syncLoopback)
 		},
 	}
 }
@@ -463,12 +469,23 @@ func (commands commandSet) runChild(
 	ctx context.Context,
 	box state.BoxRecord,
 	child []string,
+	syncLoopback bool,
 ) error {
 	code, err := commands.executeChild(ctx, box, child)
 	if err != nil {
 		return err
 	}
-	return childResult(code)
+	if resultErr := childResult(code); resultErr != nil {
+		return resultErr
+	}
+	if !syncLoopback {
+		return nil
+	}
+	status, err := commands.service.SyncLoopback(ctx, box)
+	if err != nil {
+		return err
+	}
+	return commands.renderer().LoopbackSummary(status)
 }
 
 func (commands commandSet) executeChild(

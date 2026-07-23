@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"wktbox/internal/loopback"
 	"wktbox/internal/state"
 )
 
@@ -37,15 +38,16 @@ type PortSet struct {
 }
 
 type BoxData struct {
-	ID         string       `json:"id"`
-	Name       string       `json:"name"`
-	Status     state.Status `json:"status"`
-	Worktree   string       `json:"worktree"`
-	Branch     string       `json:"branch,omitempty"`
-	URLs       URLs         `json:"urls"`
-	Ports      PortSet      `json:"ports"`
-	CreatedAt  *time.Time   `json:"createdAt,omitempty"`
-	LastUsedAt *time.Time   `json:"lastUsedAt,omitempty"`
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Status     state.Status    `json:"status"`
+	Worktree   string          `json:"worktree"`
+	Branch     string          `json:"branch,omitempty"`
+	URLs       URLs            `json:"urls"`
+	Ports      PortSet         `json:"ports"`
+	CreatedAt  *time.Time      `json:"createdAt,omitempty"`
+	LastUsedAt *time.Time      `json:"lastUsedAt,omitempty"`
+	Loopback   loopback.Status `json:"loopback"`
 }
 
 func New(options Options) Renderer {
@@ -139,6 +141,17 @@ func (renderer Renderer) Error(code string, message string) error {
 	return err
 }
 
+func (renderer Renderer) LoopbackSummary(status loopback.Status) error {
+	if renderer.quiet {
+		return nil
+	}
+	if renderer.json {
+		return writeJSON(renderer.err, map[string]any{"loopback": status})
+	}
+	_, err := fmt.Fprint(renderer.err, humanLoopback(status, true))
+	return err
+}
+
 func WebtopURL(box state.BoxRecord) string {
 	if box.Ports.Size == 0 {
 		return ""
@@ -160,6 +173,7 @@ func boxData(box state.BoxRecord) BoxData {
 		Status:   box.Status,
 		Worktree: box.Worktree,
 		Branch:   box.Branch,
+		Loopback: box.Loopback,
 		URLs: URLs{
 			Webtop:  WebtopURL(box),
 			Gateway: GatewayURL(box),
@@ -203,7 +217,61 @@ func humanBox(box state.BoxRecord) string {
 	if url := GatewayURL(box); url != "" {
 		fmt.Fprintf(&result, "Gateway:  %s\n", url)
 	}
+	if box.Loopback.EventStream != "" {
+		result.WriteString(humanLoopback(box.Loopback, false))
+	}
 	return result.String()
+}
+
+func humanLoopback(status loopback.Status, summary bool) string {
+	var result strings.Builder
+	if summary {
+		result.WriteString("Automatic localhost routes inside Webtop:\n")
+	} else {
+		fmt.Fprintf(&result, "Loopback event stream: %s\n", status.EventStream)
+	}
+	for _, route := range status.Routes {
+		if route.State == loopback.RouteConflict {
+			fmt.Fprintf(
+				&result,
+				"  localhost:%d conflict: %s\n",
+				route.Port,
+				route.Error,
+			)
+			continue
+		}
+		switch routeScheme(route.Port) {
+		case "http", "https":
+			fmt.Fprintf(
+				&result,
+				"  %s://localhost:%d\n",
+				routeScheme(route.Port),
+				route.Port,
+			)
+		default:
+			fmt.Fprintf(
+				&result,
+				"  localhost:%d -> %s\n",
+				route.Port,
+				route.Target,
+			)
+		}
+	}
+	for _, warning := range status.Warnings {
+		fmt.Fprintf(&result, "  warning: %s\n", warning.Message)
+	}
+	return result.String()
+}
+
+func routeScheme(port uint16) string {
+	switch port {
+	case 80, 3000, 4173, 5000, 5173, 8000, 8080:
+		return "http"
+	case 443, 8443:
+		return "https"
+	default:
+		return ""
+	}
 }
 
 func writeJSON(destination io.Writer, value any) error {

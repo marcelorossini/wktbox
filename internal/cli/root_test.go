@@ -12,6 +12,7 @@ import (
 	"wktbox/internal/app"
 	"wktbox/internal/cli"
 	"wktbox/internal/executor"
+	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
 	"wktbox/internal/state"
 )
@@ -25,6 +26,9 @@ type fakeService struct {
 	list       []state.BoxRecord
 	logOutput  string
 	doctorData any
+	syncStatus loopback.Status
+	syncErr    error
+	childOut   string
 }
 
 func newFakeService() *fakeService {
@@ -43,6 +47,11 @@ func newFakeService() *fakeService {
 		box:        box,
 		list:       []state.BoxRecord{box},
 		doctorData: map[string]any{"ok": true},
+		syncStatus: loopback.Status{
+			EventStream: loopback.EventStreamConnected,
+			Routes:      []loopback.Route{},
+			Warnings:    []loopback.Warning{},
+		},
 	}
 }
 
@@ -77,7 +86,18 @@ func (fake *fakeService) Run(
 ) (int, error) {
 	fake.calls = append(fake.calls, "Run:"+strings.Join(command, "|"))
 	fake.calls = append(fake.calls, "Env:"+strings.Join(options.Environment, "|"))
+	if options.Stdout != nil {
+		_, _ = io.WriteString(options.Stdout, fake.childOut)
+	}
 	return fake.runCode, fake.runErr
+}
+
+func (fake *fakeService) SyncLoopback(
+	context.Context,
+	state.BoxRecord,
+) (loopback.Status, error) {
+	fake.calls = append(fake.calls, "SyncLoopback")
+	return fake.syncStatus, fake.syncErr
 }
 
 func (fake *fakeService) Logs(
@@ -136,6 +156,7 @@ func TestRunEnsuresBoxThenPassesChildArgsAndEnvironment(t *testing.T) {
 		"Ensure",
 		"Run:docker|compose|up|-d",
 		"Env:TOKEN=value with spaces",
+		"SyncLoopback",
 	)
 }
 
@@ -169,7 +190,95 @@ func TestComposePrefixesDockerComposeAndEnsuresBox(t *testing.T) {
 		"Ensure",
 		"Run:docker|compose|up|--build|-d",
 		"Env:",
+		"SyncLoopback",
 	)
+}
+
+func TestRunSyncsLoopbackAfterChildAndPreservesStdout(t *testing.T) {
+	fake := newFakeService()
+	fake.childOut = "child-output"
+	fake.syncStatus.Routes = []loopback.Route{{
+		Port:     5173,
+		Target:   "docker:5173",
+		Sources:  []string{"frontend"},
+		Protocol: "tcp",
+		State:    loopback.RouteListening,
+	}}
+	streams := testStreams()
+	root := cli.New(fake, streams)
+	root.SetArgs([]string{"run", "--", "printf", "child-output"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := streams.Out.(*bytes.Buffer).String(); got != "child-output" {
+		t.Fatalf("stdout = %q", got)
+	}
+	if got := streams.Err.(*bytes.Buffer).String(); !strings.Contains(
+		got,
+		"http://localhost:5173",
+	) {
+		t.Fatalf("stderr = %q", got)
+	}
+}
+
+func TestExecDoesNotSyncLoopback(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(fake, testStreams())
+	root.SetArgs([]string{"exec", "--", "true"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, fake.calls,
+		"Resolve:.",
+		"Inspect",
+		"Run:true",
+		"Env:",
+	)
+}
+
+func TestFailedChildDoesNotSyncOrReplaceItsExitCode(t *testing.T) {
+	fake := newFakeService()
+	fake.runCode = 23
+	root := cli.New(fake, testStreams())
+	root.SetArgs([]string{"compose", "--", "up", "-d"})
+
+	err := root.Execute()
+
+	var exitError cli.ExitError
+	if !errors.As(err, &exitError) || exitError.Code != 23 {
+		t.Fatalf("error = %#v", err)
+	}
+	for _, call := range fake.calls {
+		if call == "SyncLoopback" {
+			t.Fatalf("unexpected calls = %#v", fake.calls)
+		}
+	}
+}
+
+func TestQuietSuppressesLoopbackSummaryOnly(t *testing.T) {
+	fake := newFakeService()
+	fake.childOut = "child-output"
+	fake.syncStatus.Routes = []loopback.Route{{
+		Port:  5173,
+		State: loopback.RouteListening,
+	}}
+	streams := testStreams()
+	root := cli.New(fake, streams)
+	root.SetArgs([]string{"--quiet", "run", "--", "true"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := streams.Out.(*bytes.Buffer).String(); got != "child-output" {
+		t.Fatalf("stdout = %q", got)
+	}
+	if got := streams.Err.(*bytes.Buffer).String(); got != "" {
+		t.Fatalf("stderr = %q", got)
+	}
 }
 
 func TestUpDoesNotExecuteAChildCommand(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"wktbox/internal/gitbridge"
 	"wktbox/internal/identity"
 	"wktbox/internal/lock"
+	"wktbox/internal/loopback"
 	"wktbox/internal/output"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
@@ -55,6 +56,7 @@ type SandboxManager interface {
 	Restart(context.Context, string) error
 	Destroy(context.Context, string) error
 	Touch(context.Context, string) error
+	SyncLoopback(context.Context, string) (loopback.Status, error)
 }
 
 type Options struct {
@@ -309,6 +311,16 @@ func (application *App) Run(
 		return code, touchErr
 	}
 	return code, nil
+}
+
+func (application *App) SyncLoopback(
+	ctx context.Context,
+	box state.BoxRecord,
+) (loopback.Status, error) {
+	if application.manager == nil {
+		return loopback.Status{}, errors.New("sandbox manager is not configured")
+	}
+	return application.manager.SyncLoopback(ctx, box.ID)
 }
 
 func (application *App) Logs(

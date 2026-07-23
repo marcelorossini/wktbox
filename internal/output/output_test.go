@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"wktbox/internal/loopback"
 	"wktbox/internal/output"
 	"wktbox/internal/ports"
 	"wktbox/internal/state"
@@ -28,6 +29,17 @@ func TestWriteBoxJSONUsesStablePublicContract(t *testing.T) {
 		GatewayEnabled: true,
 		CreatedAt:      time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC),
 		LastUsedAt:     time.Date(2026, 7, 23, 11, 0, 0, 0, time.UTC),
+		Loopback: loopback.Status{
+			EventStream: loopback.EventStreamConnected,
+			Routes: []loopback.Route{{
+				Port:     5173,
+				Target:   "docker:5173",
+				Sources:  []string{"frontend"},
+				Protocol: "tcp",
+				State:    loopback.RouteListening,
+			}},
+			Warnings: []loopback.Warning{},
+		},
 	}
 
 	if err := renderer.Box(box); err != nil {
@@ -53,6 +65,10 @@ func TestWriteBoxJSONUsesStablePublicContract(t *testing.T) {
 	}
 	if _, leaked := got["composePath"]; leaked {
 		t.Fatalf("internal path leaked in public JSON: %#v", got)
+	}
+	loopbackData, ok := got["loopback"].(map[string]any)
+	if !ok || loopbackData["eventStream"] != loopback.EventStreamConnected {
+		t.Fatalf("loopback = %#v", got["loopback"])
 	}
 }
 
@@ -126,5 +142,79 @@ func TestQuietSuppressesHumanMessagesButNotJSONData(t *testing.T) {
 	}
 	if structured.Len() == 0 {
 		t.Fatal("quiet suppressed structured data")
+	}
+}
+
+func TestLoopbackSummaryUsesProtocolHintsAndReportsConflictsAndWarnings(t *testing.T) {
+	var stderr bytes.Buffer
+	renderer := output.New(output.Options{Err: &stderr})
+	status := loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+		Routes: []loopback.Route{
+			{Port: 443, Target: "docker:443", State: loopback.RouteListening},
+			{Port: 5173, Target: "docker:5173", State: loopback.RouteListening},
+			{Port: 5432, Target: "docker:5432", State: loopback.RouteListening},
+			{Port: 61000, Target: "docker:61000", State: loopback.RouteConflict, Error: "address in use"},
+		},
+		Warnings: []loopback.Warning{{
+			Code:    "udp_unsupported",
+			Message: "UDP publication dns:5353 is not proxied",
+		}},
+	}
+
+	if err := renderer.LoopbackSummary(status); err != nil {
+		t.Fatal(err)
+	}
+
+	got := stderr.String()
+	for _, want := range []string{
+		"Automatic localhost routes inside Webtop:",
+		"https://localhost:443",
+		"http://localhost:5173",
+		"localhost:5432 -> docker:5432",
+		"localhost:61000 conflict: address in use",
+		"UDP publication dns:5353 is not proxied",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("summary missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLoopbackSummaryJSONGoesToStderr(t *testing.T) {
+	var stderr bytes.Buffer
+	renderer := output.New(output.Options{JSON: true, Err: &stderr})
+	status := loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+		Routes:      []loopback.Route{},
+		Warnings:    []loopback.Warning{},
+	}
+
+	if err := renderer.LoopbackSummary(status); err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		Loopback loopback.Status `json:"loopback"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Loopback.EventStream != loopback.EventStreamConnected {
+		t.Fatalf("loopback = %#v", got.Loopback)
+	}
+}
+
+func TestQuietSuppressesLoopbackSummary(t *testing.T) {
+	var stderr bytes.Buffer
+	renderer := output.New(output.Options{Quiet: true, Err: &stderr})
+
+	if err := renderer.LoopbackSummary(loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

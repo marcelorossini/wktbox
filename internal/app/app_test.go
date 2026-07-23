@@ -12,6 +12,7 @@ import (
 	"wktbox/internal/doctor"
 	"wktbox/internal/executor"
 	"wktbox/internal/identity"
+	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
 	"wktbox/internal/sandbox"
@@ -22,6 +23,8 @@ type fakeManager struct {
 	ensuredSpec sandbox.Spec
 	box         state.BoxRecord
 	touched     []string
+	loopback    loopback.Status
+	syncIDs     []string
 }
 
 func (manager *fakeManager) EnsureAllocated(
@@ -69,6 +72,14 @@ func (manager *fakeManager) Destroy(context.Context, string) error {
 func (manager *fakeManager) Touch(_ context.Context, id string) error {
 	manager.touched = append(manager.touched, id)
 	return nil
+}
+
+func (manager *fakeManager) SyncLoopback(
+	_ context.Context,
+	id string,
+) (loopback.Status, error) {
+	manager.syncIDs = append(manager.syncIDs, id)
+	return manager.loopback, nil
 }
 
 type discoveryRunner struct {
@@ -195,6 +206,23 @@ func TestRunUsesExecutorAndTouchesBoxAfterChildExit(t *testing.T) {
 	}
 	if !reflect.DeepEqual(manager.touched, []string{box.ID}) {
 		t.Fatalf("touches = %#v", manager.touched)
+	}
+}
+
+func TestSyncLoopbackDelegatesToManager(t *testing.T) {
+	want := loopback.Status{EventStream: loopback.EventStreamConnected}
+	manager := &fakeManager{loopback: want}
+	service := app.New(app.Options{Manager: manager})
+	box := state.BoxRecord{ID: "a4f8c9137d2b"}
+
+	got, err := service.SyncLoopback(context.Background(), box)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) ||
+		!reflect.DeepEqual(manager.syncIDs, []string{box.ID}) {
+		t.Fatalf("status=%#v sync IDs=%#v", got, manager.syncIDs)
 	}
 }
 
