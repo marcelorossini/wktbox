@@ -11,6 +11,7 @@ import (
 	"wktbox/internal/app"
 	"wktbox/internal/doctor"
 	"wktbox/internal/executor"
+	"wktbox/internal/identity"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
 	"wktbox/internal/sandbox"
@@ -364,6 +365,41 @@ func TestResolutionCarriesFlagOverridesWithoutReadingCommandEnvironment(t *testi
 	}
 	if !strings.Contains(err.Error(), "missing.yml") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestResolveRejectsNamedProfileUntilSchemaSupportsIt(t *testing.T) {
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: t.TempDir()},
+		Manager:           &fakeManager{},
+		InteractiveRunner: &interactiveRunner{},
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+	})
+
+	_, err := service.Resolve(context.Background(), app.Request{
+		Path:    ".",
+		Profile: "e2e",
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "profile") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestValidateWorktreePathRejectsWindowsUNCAndAllowsSpaces(t *testing.T) {
+	if err := app.ValidateWorktreePath(
+		`C:\repo trees\feature auth`,
+		identity.Windows,
+	); err != nil {
+		t.Fatalf("local path with spaces: %v", err)
+	}
+	err := app.ValidateWorktreePath(
+		`\\server\share\feature`,
+		identity.Windows,
+	)
+	if err == nil || !strings.Contains(err.Error(), "UNC") {
+		t.Fatalf("UNC error = %v", err)
 	}
 }
 

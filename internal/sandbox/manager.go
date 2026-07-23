@@ -97,6 +97,8 @@ func (manager Manager) ensure(
 	if err != nil {
 		return state.BoxRecord{}, err
 	}
+	requiresComposeApply := files.Changed ||
+		(exists && existing.GatewayEnabled != spec.Config.Gateway.Enabled)
 	record := existing
 	record.ID = spec.ID
 	if spec.Name != "" {
@@ -123,7 +125,7 @@ func (manager Manager) ensure(
 	if exists {
 		realStatus, inspectErr = manager.backend.Inspect(ctx, project)
 	}
-	if exists && inspectErr == nil && realStatus.Ready() {
+	if exists && inspectErr == nil && realStatus.Ready() && !requiresComposeApply {
 		record.Status = state.Ready
 		current.Boxes[record.ID] = record
 		if err := manager.store.Save(ctx, current); err != nil {
@@ -143,7 +145,7 @@ func (manager Manager) ensure(
 	}
 
 	var lifecycleErr error
-	if realStatus.Exists && realStatus.State == compose.Stopped {
+	if realStatus.Exists && realStatus.State == compose.Stopped && !requiresComposeApply {
 		lifecycleErr = manager.backend.Start(ctx, project)
 	} else {
 		lifecycleErr = manager.backend.Up(ctx, project)

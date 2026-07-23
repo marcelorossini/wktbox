@@ -1,6 +1,6 @@
 # Wktbox — Plano técnico completo
 
-Status: implementação em andamento; Fase 0 validada em Linux, validação no Windows pendente
+Status: MVP implementado e validado em Linux; runtime no Docker Desktop/Windows pendente
 Nome do produto: **Wktbox**  
 Executável: `wktbox`  
 Arquivo de configuração: `.wktbox.yml`
@@ -70,8 +70,6 @@ O Wktbox resolve o problema criando um Docker daemon completo para cada worktree
 
 ### 3.2 Objetivos posteriores
 
-- Webtop completo com navegador e terminal;
-- gateway HTTP com rotas por hostname;
 - exposição TCP controlada;
 - gerenciamento de artefatos E2E;
 - cache remoto ou compartilhado de builds;
@@ -1569,8 +1567,8 @@ Entregáveis:
 | Project env | `/workspace/.env:ro` |
 | Estado | Diretório de dados da aplicação |
 | Portas externas | Blocos de 10 por box |
-| Webtop | Opcional no núcleo, habilitado no produto |
-| Gateway | HTTP por hostname, fase 3 |
+| Webtop | LinuxServer Webtop obrigatório no schema v1 |
+| Gateway | HTTP opcional por hostname, implementado |
 | Git | Validar `mounted`; fallback `host` |
 | Segurança | Isolamento operacional, não código hostil |
 | Distribuição | Binário único + imagens versionadas |
@@ -1598,9 +1596,9 @@ Entregáveis:
 - Rede e portas do Compose: https://docs.docker.com/compose/how-tos/networking/
 - Git worktree: https://git-scm.com/docs/git-worktree.html
 
-## 33. Próximo passo recomendado
+## 33. Sequência de implementação executada
 
-Não iniciar pela CLI completa. Criar primeiro um spike manual contendo:
+A implementação começou por um spike manual contendo:
 
 1. uma worktree de exemplo;
 2. um Compose externo mínimo com `docker` e `webtop`;
@@ -1612,7 +1610,8 @@ Não iniciar pela CLI completa. Criar primeiro um spike manual contendo:
 8. teste da ponte Git;
 9. coleta de métricas e problemas no Windows.
 
-Somente depois que esse spike cumprir os critérios da Fase 0, implementar `wktbox up` e `wktbox run`.
+Depois que o spike cumpriu os critérios da Fase 0 em Linux, foram implementados
+o control plane, o Webtop completo, o gateway e o E2E de duas worktrees.
 
 ## 34. Resultado do spike de referência
 
@@ -1622,16 +1621,16 @@ Execução de referência em 23 de julho de 2026:
 |---|---|
 | Host do teste | Linux `amd64`, Docker Engine 29.3.0, Docker Compose 5.1.0 |
 | DinD | `docker:29.5.0-dind`, privilegiado, API TLS em 2376 sem publicação no host |
-| Runner | `wktbox/webtop:dev`, derivado de `docker:29.5.0-cli` |
+| Runner | `wktbox/webtop:dev`, LinuxServer Webtop Ubuntu XFCE com Docker CLI 29.5.0 e Compose 5.1.3 fixados |
 | Workspaces | dois caminhos distintos contendo espaços, montados como `/workspace` no runner e no DinD |
 | Compose interno | o mesmo arquivo nas duas boxes, com portas 5173, 8000 e 5432 |
 | Isolamento | IDs de containers e volumes distintos; marcadores persistentes `box-a` e `box-b` |
 | Project env | arquivo externo distinto por box, montado como `/workspace/.env` no runner e no DinD |
 | Ciclo de vida | parar/iniciar preserva `/var/lib/docker` e o volume do banco; o workload interno deve ser religado explicitamente |
 | Destruição | remover a box A com volumes não interrompe o E2E da box B |
-| Startup frio observado | 34 segundos para criar duas boxes, baixar a imagem interna e passar os dois E2E |
-| Armazenamento observado | 228.405.457 bytes na box A e 228.404.862 bytes na box B |
-| Memória observada | DinD entre 162,1 MiB e 183,5 MiB; runner mínimo abaixo de 1 MiB |
+| Startup observado no E2E final | 15 segundos a frio e 10 segundos para religar a box A e o workload interno |
+| Armazenamento observado | 228.407.256 bytes na box A e 228.407.096 bytes na box B |
+| Memória observada | Webtop completo entre 685,2 MiB e 692,7 MiB; o spike DinD anterior observou 162,1 MiB a 183,5 MiB |
 
 Essas medições são diagnósticas, não limites de produto. Elas variam com cache,
 rede, imagens internas e carga do host.
@@ -1650,4 +1649,39 @@ rede, imagens internas e carga do host.
    no Windows. O `doctor` deve tratar essa validação como requisito antes da
    primeira criação nesse host.
 
-A prova executável está em `tests/integration/spike.sh`.
+A prova de arquitetura está em `tests/integration/spike.sh`. O fluxo completo da
+CLI e a medição final estão em `tests/e2e/two_worktrees.sh` e
+`tests/e2e/measure.sh`.
+
+## 35. Auditoria dos critérios de aceite
+
+Auditoria concluída em 23 de julho de 2026:
+
+| # | Critério | Evidência | Situação |
+|---:|---|---|---|
+| 1 | `run -- docker compose up -d` | `tests/e2e/two_worktrees.sh` | Validado em Linux |
+| 2 | `--path` a partir de qualquer diretório | testes de `internal/discovery`, `internal/app` e E2E | Validado |
+| 3 | `--env-file` em `/workspace/.env` | testes de `internal/environment`, `internal/sandbox` e E2E | Validado |
+| 4 | Project env ausente de estado e logs | testes de `internal/state`, `internal/output`, `internal/redact` e E2E somente leitura | Validado |
+| 5 | Portas internas idênticas em duas boxes | spike e E2E com 5173, 8000 e 5432 | Validado em Linux |
+| 6 | Daemon, containers, redes e volumes próprios | `tests/e2e/assert-isolation.sh` e E2E | Validado em Linux |
+| 7 | Sem socket Docker do host no Webtop | `assets/sandbox.compose.yml` e testes de renderização | Validado |
+| 8 | `docker ps` isolado | E2E compara conjuntos de IDs internos | Validado em Linux |
+| 9 | `stop` preserva imagens e volumes | E2E religa workload e confere marcador do banco | Validado em Linux |
+| 10 | `destroy` seletivo | E2E mantém box B funcional após destruir A | Validado em Linux |
+| 11 | TTY, stdin, sinais, argumentos e exit code | testes de `internal/executor`, sinais Unix e E2E com exit 23 | Validado |
+| 12 | Caminhos Windows com espaços | testes de descoberta/identidade/caminho e builds Windows `amd64`/`arm64` | Implementado; runtime Windows pendente |
+| 13 | Recuperação por labels após perda do estado | E2E remove `state.json` e recupera as duas boxes, inclusive perfil gateway | Validado em Linux |
+| 14 | Alocação concorrente sem colisão | testes de locks/portas e dois `up` concorrentes no E2E | Validado |
+| 15 | E2E interno por nomes de serviço em paralelo | perfil interno `test` executado nas duas boxes | Validado em Linux |
+| 16 | `doctor` identifica falhas comuns | testes de `internal/doctor` e verificação TLS real no E2E | Validado em Linux |
+| 17 | Ponte Git implementada ou limitação informada | `git.mode: host` padrão; `mounted` implementado, validado ao iniciar e documentado como experimental no Windows | Validado com limitação explícita |
+
+Além desses critérios, a geração externa detecta mudanças de configuração:
+`wktbox up` reaplica o Compose quando imagens, gateway, env ou overrides mudam,
+mas permanece idempotente quando os arquivos gerados são idênticos.
+
+Os binários de release são gerados para Windows, Linux e macOS em `amd64` e
+`arm64`. CI executa formatação, vet, race detector, builds, imagens e o E2E. A
+validação específica no Windows permanece necessária para Docker Desktop, NTFS,
+bind mounts aninhados, UID/GID, watch de arquivos e `git.mode: mounted`.

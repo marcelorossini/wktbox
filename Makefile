@@ -7,7 +7,7 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: build fmt spike test vet
+.PHONY: build e2e fmt images release spike test test-race vet
 
 build:
 	mkdir -p bin
@@ -22,5 +22,18 @@ spike:
 test:
 	$(GO_CONTAINER) go test ./...
 
+test-race:
+	$(GO_CONTAINER) go test -race ./...
+
 vet:
 	$(GO_CONTAINER) go vet ./...
+
+images:
+	docker build -t wktbox/webtop:dev images/webtop
+	docker build -t wktbox/gateway:dev images/gateway
+
+e2e:
+	bash tests/e2e/two_worktrees.sh
+
+release:
+	$(GO_CONTAINER) bash scripts/build.sh "$${WKTBOX_VERSION:-dev}"

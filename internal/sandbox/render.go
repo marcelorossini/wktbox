@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -50,22 +51,28 @@ func Render(directory string, spec Spec) (Files, error) {
 		SandboxEnvPath:    filepath.Join(directory, "sandbox.env"),
 		GatewayConfigPath: filepath.Join(directory, "gateway.conf"),
 	}
-	if err := writeProtected(files.ComposePath, assets.SandboxCompose); err != nil {
+	changed, err := writeProtected(files.ComposePath, assets.SandboxCompose)
+	if err != nil {
 		return Files{}, err
 	}
+	files.Changed = files.Changed || changed
 	gatewayConfig, err := gateway.Render(spec.Config.Gateway.Routes, spec.ID)
 	if err != nil {
 		return Files{}, err
 	}
-	if err := writeProtected(files.GatewayConfigPath, gatewayConfig); err != nil {
+	changed, err = writeProtected(files.GatewayConfigPath, gatewayConfig)
+	if err != nil {
 		return Files{}, err
 	}
-	if err := writeProtected(
+	files.Changed = files.Changed || changed
+	changed, err = writeProtected(
 		files.SandboxEnvPath,
 		renderSandboxEnv(spec, files.GatewayConfigPath),
-	); err != nil {
+	)
+	if err != nil {
 		return Files{}, err
 	}
+	files.Changed = files.Changed || changed
 
 	overridePath := filepath.Join(directory, "project-env.override.yml")
 	if spec.ProjectEnv.Mount ||
@@ -75,11 +82,15 @@ func Render(directory string, spec Spec) (Files, error) {
 		if err != nil {
 			return Files{}, err
 		}
-		if err := writeProtected(overridePath, override); err != nil {
+		changed, err = writeProtected(overridePath, override)
+		if err != nil {
 			return Files{}, err
 		}
+		files.Changed = files.Changed || changed
 		files.ProjectEnvOverridePath = overridePath
-	} else if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
+	} else if err := os.Remove(overridePath); err == nil {
+		files.Changed = true
+	} else if !os.IsNotExist(err) {
 		return Files{}, fmt.Errorf("remove stale project env override: %w", err)
 	}
 
@@ -183,32 +194,43 @@ func renderRuntimeOverride(spec Spec) ([]byte, error) {
 	return data, nil
 }
 
-func writeProtected(path string, data []byte) error {
+func writeProtected(path string, data []byte) (bool, error) {
+	existing, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existing, data) {
+		if err := os.Chmod(path, 0o600); err != nil {
+			return false, fmt.Errorf("protect %s: %w", filepath.Base(path), err)
+		}
+		return false, nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("read %s: %w", filepath.Base(path), err)
+	}
+
 	directory := filepath.Dir(path)
 	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temporary %s: %w", filepath.Base(path), err)
+		return false, fmt.Errorf("create temporary %s: %w", filepath.Base(path), err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
-		return fmt.Errorf("protect temporary %s: %w", filepath.Base(path), err)
+		return false, fmt.Errorf("protect temporary %s: %w", filepath.Base(path), err)
 	}
 	if _, err := temporary.Write(data); err != nil {
 		temporary.Close()
-		return fmt.Errorf("write temporary %s: %w", filepath.Base(path), err)
+		return false, fmt.Errorf("write temporary %s: %w", filepath.Base(path), err)
 	}
 	if err := temporary.Sync(); err != nil {
 		temporary.Close()
-		return fmt.Errorf("sync temporary %s: %w", filepath.Base(path), err)
+		return false, fmt.Errorf("sync temporary %s: %w", filepath.Base(path), err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary %s: %w", filepath.Base(path), err)
+		return false, fmt.Errorf("close temporary %s: %w", filepath.Base(path), err)
 	}
 	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace %s: %w", filepath.Base(path), err)
+		return false, fmt.Errorf("replace %s: %w", filepath.Base(path), err)
 	}
-	return nil
+	return true, nil
 }

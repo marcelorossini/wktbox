@@ -171,11 +171,24 @@ func (application *App) Resolve(
 	ctx context.Context,
 	request Request,
 ) (Resolution, error) {
+	if request.Profile != "" {
+		return Resolution{}, fmt.Errorf(
+			"configuration profile %q is not supported by schema version 1",
+			request.Profile,
+		)
+	}
 	if request.Path == "" {
 		request.Path = "."
 	}
 	worktree, err := discovery.Discover(ctx, application.processRunner, request.Path)
 	if err != nil {
+		return Resolution{}, err
+	}
+	platform := identity.Unix
+	if runtime.GOOS == "windows" {
+		platform = identity.Windows
+	}
+	if err := ValidateWorktreePath(worktree.Path, platform); err != nil {
 		return Resolution{}, err
 	}
 	cfg, err := config.Load(worktree.Path, application.environ, config.Overrides{
@@ -199,10 +212,6 @@ func (application *App) Resolve(
 	if err != nil {
 		return Resolution{}, err
 	}
-	platform := identity.Unix
-	if runtime.GOOS == "windows" {
-		platform = identity.Windows
-	}
 	boxIdentity := identity.ForWorktree(worktree.CommonDir, worktree.Path, platform)
 	spec := sandbox.Spec{
 		ID:         boxIdentity.ID,
@@ -223,6 +232,20 @@ func (application *App) Resolve(
 		Worktree: worktree,
 		Spec:     spec,
 	}, nil
+}
+
+func ValidateWorktreePath(value string, platform identity.Platform) error {
+	if platform != identity.Windows {
+		return nil
+	}
+	normalized := strings.ReplaceAll(value, "/", `\`)
+	if strings.HasPrefix(normalized, `\\`) {
+		return fmt.Errorf(
+			"UNC worktree paths are not supported by the Windows MVP: %s",
+			value,
+		)
+	}
+	return nil
 }
 
 func (application *App) Ensure(

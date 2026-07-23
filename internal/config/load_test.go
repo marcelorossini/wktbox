@@ -113,6 +113,37 @@ func TestLoadRejectsUnsupportedVersion(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsUnsupportedWebtopModes(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "disabled runner",
+			body: "version: 1\nwebtop:\n  enabled: false\n",
+			want: "webtop.enabled",
+		},
+		{
+			name: "SSH server",
+			body: "version: 1\nwebtop:\n  ssh:\n    enabled: true\n",
+			want: "webtop.ssh.enabled",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			worktree := t.TempDir()
+			writeFile(t, filepath.Join(worktree, ".wktbox.yml"), test.body)
+
+			_, err := config.Load(worktree, nil, config.Overrides{})
+
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
 func writeFile(t *testing.T, path string, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

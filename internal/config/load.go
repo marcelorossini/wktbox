@@ -89,6 +89,12 @@ func validate(cfg Config) error {
 			cfg.Workspace.Target,
 		)
 	}
+	if !cfg.Webtop.Enabled {
+		return fmt.Errorf("webtop.enabled=false is not supported by the MVP runner")
+	}
+	if cfg.Webtop.SSH.Enabled {
+		return fmt.Errorf("webtop.ssh.enabled=true is not supported by the MVP")
+	}
 	if cfg.Git.Mode != GitHost && cfg.Git.Mode != GitMounted {
 		return fmt.Errorf("unsupported git mode %q", cfg.Git.Mode)
 	}

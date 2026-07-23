@@ -146,10 +146,13 @@ func TestEnsureAllocatedReservesNextFreeBlockUnderManagerLock(t *testing.T) {
 func TestEnsureIsIdempotentWhenDockerIsAlreadyReady(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
-	record := existingRecord(t, store, state.Stopped)
-	saveState(t, store, record)
 	backend := &fakeBackend{status: readyComposeStatus()}
 	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
+
+	if _, err := manager.Ensure(context.Background(), testSpec()); err != nil {
+		t.Fatal(err)
+	}
+	backend.upCalls = nil
 
 	got, err := manager.Ensure(context.Background(), testSpec())
 	if err != nil {
@@ -160,6 +163,48 @@ func TestEnsureIsIdempotentWhenDockerIsAlreadyReady(t *testing.T) {
 	}
 	if len(backend.upCalls) != 0 || len(backend.startCalls) != 0 {
 		t.Fatalf("unexpected lifecycle calls: up=%d start=%d", len(backend.upCalls), len(backend.startCalls))
+	}
+}
+
+func TestEnsureReappliesReadyComposeWhenGeneratedConfigurationChanges(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	backend := &fakeBackend{status: readyComposeStatus()}
+	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
+
+	if _, err := manager.Ensure(context.Background(), testSpec()); err != nil {
+		t.Fatal(err)
+	}
+	backend.upCalls = nil
+
+	changed := testSpec()
+	changed.Config.Runtime.WebtopImage = "wktbox/webtop:next"
+	if _, err := manager.Ensure(context.Background(), changed); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.upCalls) != 1 {
+		t.Fatalf("up calls = %d, want 1", len(backend.upCalls))
+	}
+}
+
+func TestEnsureReappliesReadyComposeWhenGatewayProfileChanges(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	backend := &fakeBackend{status: readyComposeStatus()}
+	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
+
+	if _, err := manager.Ensure(context.Background(), testSpec()); err != nil {
+		t.Fatal(err)
+	}
+	backend.upCalls = nil
+
+	changed := testSpec()
+	changed.Config.Gateway.Enabled = true
+	if _, err := manager.Ensure(context.Background(), changed); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.upCalls) != 1 {
+		t.Fatalf("up calls = %d, want 1", len(backend.upCalls))
 	}
 }
 
