@@ -1,0 +1,9 @@
+/bin/
+/dist/
+/.cache/
+/.wktbox.local.yml
+/.wktbox-artifacts/
+/.idea/
+/.vscode/
+*.tmp
+*.log

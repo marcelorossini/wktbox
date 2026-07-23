@@ -1,6 +1,6 @@
 # Wktbox — Plano técnico completo
 
-Status: proposta de arquitetura para MVP  
+Status: implementação em andamento; Fase 0 validada em Linux, validação no Windows pendente
 Nome do produto: **Wktbox**  
 Executável: `wktbox`  
 Arquivo de configuração: `.wktbox.yml`
@@ -1613,3 +1613,41 @@ Não iniciar pela CLI completa. Criar primeiro um spike manual contendo:
 9. coleta de métricas e problemas no Windows.
 
 Somente depois que esse spike cumprir os critérios da Fase 0, implementar `wktbox up` e `wktbox run`.
+
+## 34. Resultado do spike de referência
+
+Execução de referência em 23 de julho de 2026:
+
+| Item | Resultado |
+|---|---|
+| Host do teste | Linux `amd64`, Docker Engine 29.3.0, Docker Compose 5.1.0 |
+| DinD | `docker:29.5.0-dind`, privilegiado, API TLS em 2376 sem publicação no host |
+| Runner | `wktbox/webtop:dev`, derivado de `docker:29.5.0-cli` |
+| Workspaces | dois caminhos distintos contendo espaços, montados como `/workspace` no runner e no DinD |
+| Compose interno | o mesmo arquivo nas duas boxes, com portas 5173, 8000 e 5432 |
+| Isolamento | IDs de containers e volumes distintos; marcadores persistentes `box-a` e `box-b` |
+| Project env | arquivo externo distinto por box, montado como `/workspace/.env` no runner e no DinD |
+| Ciclo de vida | parar/iniciar preserva `/var/lib/docker` e o volume do banco; o workload interno deve ser religado explicitamente |
+| Destruição | remover a box A com volumes não interrompe o E2E da box B |
+| Startup frio observado | 34 segundos para criar duas boxes, baixar a imagem interna e passar os dois E2E |
+| Armazenamento observado | 228.405.457 bytes na box A e 228.404.862 bytes na box B |
+| Memória observada | DinD entre 162,1 MiB e 183,5 MiB; runner mínimo abaixo de 1 MiB |
+
+Essas medições são diagnósticas, não limites de produto. Elas variam com cache,
+rede, imagens internas e carga do host.
+
+### 34.1 Decisões resultantes
+
+1. O invariante `/workspace` no runner e no DinD funciona no host Linux e suporta
+   bind mount interno de `.:/app`.
+2. Portas publicadas iguais nos dois daemons não colidem no host.
+3. `wktbox stop` preserva estado, mas não implica reinício automático do Compose
+   interno; `wktbox run -- docker compose up -d` continua sendo explícito.
+4. O modo Git inicial será `git.mode: host`. O modo `mounted` permanece opt-in
+   somente após validação específica no Windows, pois altera metadados Git
+   compartilhados e o spike atual não prova essa compatibilidade.
+5. O resultado não valida Docker Desktop, NTFS, UNC, UID/GID ou watch de arquivos
+   no Windows. O `doctor` deve tratar essa validação como requisito antes da
+   primeira criação nesse host.
+
+A prova executável está em `tests/integration/spike.sh`.
