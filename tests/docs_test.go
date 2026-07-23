@@ -79,6 +79,58 @@ func TestBuildScriptDeclaresEveryReleaseTarget(t *testing.T) {
 	}
 }
 
+func TestDocumentationCoversAutomaticWebtopLoopback(t *testing.T) {
+	readme := readProjectFile(t, "README.md")
+	for _, expected := range []string{
+		"localhost:5173",
+		"porta publicada",
+		"`wktbox status`",
+		"conflict",
+		"UDP",
+		"docker build -f images/webtop/Dockerfile",
+	} {
+		if !strings.Contains(readme, expected) {
+			t.Errorf("README missing automatic loopback concept %q", expected)
+		}
+	}
+
+	configuration := readProjectFile(t, "docs/configuration.md")
+	for _, expected := range []string{
+		"`ports:`",
+		"NetworkSettings.Ports",
+		"61000",
+		"61001",
+		"61002",
+		"gateway",
+	} {
+		if !strings.Contains(configuration, expected) {
+			t.Errorf("configuration docs missing loopback detail %q", expected)
+		}
+	}
+
+	security := readProjectFile(t, "docs/security.md")
+	for _, expected := range []string{
+		"127.0.0.1",
+		"`::1`",
+		"/var/run/docker.sock",
+		"socket Unix",
+	} {
+		if !strings.Contains(security, expected) {
+			t.Errorf("security docs missing loopback boundary %q", expected)
+		}
+	}
+
+	windows := readProjectFile(t, "docs/windows.md")
+	for _, expected := range []string{
+		"network_mode: service:webtop",
+		"containers Linux",
+	} {
+		if !strings.Contains(windows, expected) {
+			t.Errorf("Windows docs missing platform detail %q", expected)
+		}
+	}
+}
+
 func readProjectFile(t *testing.T, relative string) string {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)

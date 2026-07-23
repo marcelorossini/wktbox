@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"sync"
 	"testing"
@@ -155,6 +157,176 @@ func TestReconcilerRetriesConflictOnNextApply(t *testing.T) {
 
 	assertRouteState(t, reconciler.Apply(context.Background(), desiredPorts(port)),
 		port, loopback.RouteListening)
+}
+
+func TestProxyTransparentlyForwardsHTTPAndHTTPS(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		server func(http.Handler) *httptest.Server
+		client func(*httptest.Server) *http.Client
+		scheme string
+	}{
+		{
+			name: "HTTP",
+			server: func(handler http.Handler) *httptest.Server {
+				return httptest.NewServer(handler)
+			},
+			client: func(*httptest.Server) *http.Client {
+				return &http.Client{Timeout: 2 * time.Second}
+			},
+			scheme: "http",
+		},
+		{
+			name: "HTTPS",
+			server: func(handler http.Handler) *httptest.Server {
+				return httptest.NewTLSServer(handler)
+			},
+			client: func(server *httptest.Server) *http.Client {
+				client := server.Client()
+				client.Timeout = 2 * time.Second
+				return client
+			},
+			scheme: "https",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := test.server(http.HandlerFunc(func(
+				response http.ResponseWriter,
+				_ *http.Request,
+			) {
+				_, _ = response.Write([]byte("proxied"))
+			}))
+			defer upstream.Close()
+			upstreamAddress := upstream.Listener.Addr().String()
+			reconciler := loopback.NewReconciler(loopback.ReconcilerOptions{
+				Listen: net.Listen,
+				DialContext: func(
+					ctx context.Context,
+					network string,
+					_ string,
+				) (net.Conn, error) {
+					return (&net.Dialer{}).DialContext(ctx, network, upstreamAddress)
+				},
+			})
+			t.Cleanup(func() {
+				shutdownReconciler(t, reconciler)
+			})
+			port := freeDualStackPort(t)
+			reconciler.Apply(context.Background(), desiredPorts(port))
+
+			response, err := test.client(upstream).Get(fmt.Sprintf(
+				"%s://127.0.0.1:%d",
+				test.scheme,
+				port,
+			))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			body, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != "proxied" {
+				t.Fatalf("body = %q", body)
+			}
+		})
+	}
+}
+
+func TestProxyHandlesConcurrentConnections(t *testing.T) {
+	upstream := listenEcho(t)
+	reconciler := loopback.NewReconciler(loopback.ReconcilerOptions{
+		Listen: net.Listen,
+		DialContext: func(ctx context.Context, network string, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, upstream.Addr().String())
+		},
+	})
+	t.Cleanup(func() {
+		shutdownReconciler(t, reconciler)
+	})
+	port := freeDualStackPort(t)
+	reconciler.Apply(context.Background(), desiredPorts(port))
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port)))
+
+	var group sync.WaitGroup
+	errors := make(chan error, 20)
+	for range 20 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			connection, err := net.DialTimeout("tcp", address, 2*time.Second)
+			if err != nil {
+				errors <- err
+				return
+			}
+			defer connection.Close()
+			if _, err := connection.Write([]byte("concurrent")); err != nil {
+				errors <- err
+				return
+			}
+			buffer := make([]byte, len("concurrent"))
+			if _, err := io.ReadFull(connection, buffer); err != nil {
+				errors <- err
+				return
+			}
+			if string(buffer) != "concurrent" {
+				errors <- fmt.Errorf("echo = %q", buffer)
+			}
+		}()
+	}
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		t.Error(err)
+	}
+}
+
+func TestProxyPropagatesHalfClose(t *testing.T) {
+	upstream := listenTCP4(t, "127.0.0.1:0")
+	go func() {
+		connection, err := upstream.Accept()
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		request, _ := io.ReadAll(connection)
+		_, _ = connection.Write([]byte("after-eof:" + string(request)))
+	}()
+	reconciler := loopback.NewReconciler(loopback.ReconcilerOptions{
+		Listen: net.Listen,
+		DialContext: func(ctx context.Context, network string, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, upstream.Addr().String())
+		},
+	})
+	t.Cleanup(func() {
+		shutdownReconciler(t, reconciler)
+	})
+	port := freeDualStackPort(t)
+	reconciler.Apply(context.Background(), desiredPorts(port))
+	connection, err := net.DialTCP(
+		"tcp4",
+		nil,
+		&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: int(port)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	if _, err := connection.Write([]byte("request")); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	response, err := io.ReadAll(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(response) != "after-eof:request" {
+		t.Fatalf("response = %q", response)
+	}
 }
 
 func desiredPorts(ports ...uint16) loopback.Desired {

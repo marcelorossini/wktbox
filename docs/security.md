@@ -9,7 +9,11 @@ uma fronteira para executar código hostil.
 - cada box tem um DinD próprio;
 - o socket `/var/run/docker.sock` do host não é montado no Webtop nem no DinD;
 - a API do DinD usa TLS interno em `docker:2376` e não é publicada no host;
-- portas externas são vinculadas a `127.0.0.1`;
+- portas externas próprias do Webtop e gateway são vinculadas a `127.0.0.1`;
+- rotas automáticas de aplicações são vinculadas somente a `127.0.0.1` e
+  `::1` dentro do namespace de rede do Webtop, nunca no host;
+- o sidecar consulta a API DinD com os certificados TLS read-only e usa um
+  socket Unix privado, `/run/wktbox-loopback/control.sock`, modo `0600`;
 - o project env é montado como somente leitura;
 - arquivos externos gerados usam diretório `0700` e arquivos `0600`;
 - o estado guarda caminhos e metadados, não o conteúdo do project env;
@@ -22,6 +26,11 @@ DinD. Processos da box podem ler e alterar arquivos do projeto e podem ler o
 project env, mesmo que não consigam gravá-lo. Um Compose interno também controla
 o daemon exclusivo e pode acessar tudo que estiver montado nele.
 
+Uma porta TCP publicada no DinD fica acessível a qualquer processo que
+compartilhe o namespace do Webtop. Isso é intencional para desenvolvimento, mas
+não adiciona autenticação à aplicação. UDP não é encaminhado. Conflitos de bind
+são mostrados no status e não fazem fallback para interfaces externas.
+
 O Webtop escuta somente em loopback, mas a imagem não configura autenticação
 própria do Wktbox. Qualquer processo ou usuário capaz de acessar o loopback do
 host pode tentar abrir a porta atribuída. O gateway tem a mesma fronteira e
@@ -32,7 +41,8 @@ ao Webtop. Isso permite Git dentro da box, mas amplia o impacto de comandos,
 hooks e ferramentas sobre o repositório. O modo padrão `host` evita essa
 montagem.
 
-TLS protege a API DinD contra acesso acidental fora dos containers da box; não
+TLS protege a API DinD contra acesso acidental fora dos containers da box. Nem
+o Webtop nem o sidecar montam `/var/run/docker.sock` do host. Isso não
 transforma um container privilegiado em VM. Limites declarados em `resources`
 ainda não são aplicados no schema v1.
 

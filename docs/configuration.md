@@ -76,7 +76,30 @@ imagem ou de qualquer arquivo externo gerado é reaplicada por `wktbox up`.
 
 `webtop.enabled` deve ser `true` no MVP. `webtop.shmSize` configura a memória
 compartilhada do desktop. `webtop.ssh.enabled: true` é rejeitado porque o produto
-ainda não instala nem configura um servidor SSH.
+ainda não instala nem configura um servidor SSH. O offset reservado a SSH não é
+publicado pelo Compose externo.
+
+### Localhost automático
+
+O localhost automático não possui seção de configuração. O `ports:` do Compose
+interno é a fonte de verdade, e o sidecar consulta `NetworkSettings.Ports` do
+DinD. Somente bindings TCP com `HostPort` são encaminhados. Em
+`"8000:3000"`, a rota exposta no Webtop é `localhost:8000 -> docker:8000`;
+`EXPOSE 3000` sem publicação não cria rota. UDP aparece como aviso no status.
+
+O Webtop reserva internamente 61000 para HTTP, 61001 para HTTPS e 61002 para
+WebSocket. Isso libera portas comuns de desenvolvimento, como 3000 e 3001, para
+as aplicações. Se um container interno publicar uma das portas reservadas, o
+status registra `conflict` e as demais rotas permanecem ativas.
+
+`wktbox run` e `wktbox compose` solicitam sync depois de um processo filho
+bem-sucedido. Eventos `start`, `die`, `stop`, `destroy` e `rename` também
+atualizam as rotas automaticamente. Consulte o estado atual com:
+
+```bash
+wktbox status
+wktbox --json status
+```
 
 `git.mode` aceita:
 
@@ -89,7 +112,8 @@ ainda não instala nem configura um servidor SSH.
 `resources` (`cpus`, `memory`, `pids`) é reservado no schema v1. Os valores são
 lidos, mas ainda não impõem limites; não os trate como controle de segurança.
 
-`gateway.enabled` ativa o perfil externo `gateway`. Cada entrada em
+`gateway.enabled` ativa o perfil externo `gateway`. Ele é opcional e
+independente do localhost automático dentro do Webtop. Cada entrada em
 `gateway.routes` tem nome DNS minúsculo e uma porta interna entre 1 e 65535. A
 rota `<nome>.<box-id>.localhost` aponta para `docker:<porta>`, com WebSockets.
 

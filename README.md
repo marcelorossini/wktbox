@@ -2,8 +2,8 @@
 
 Wktbox é uma CLI em Go que cria uma box de desenvolvimento por Git worktree.
 Cada box usa um daemon Docker-in-Docker (DinD) exclusivo, preserva as portas
-internas do projeto e oferece Webtop, execução de comandos e gateway HTTP
-opcional.
+internas do projeto e oferece Webtop, execução de comandos, localhost automático
+para serviços publicados e gateway HTTP opcional.
 
 O mecanismo fornece **isolamento operacional** entre ambientes de
 desenvolvimento. O DinD é privilegiado e a worktree é montada com escrita; não
@@ -31,7 +31,7 @@ host:
 
 ```bash
 make build
-docker build -t wktbox/webtop:dev images/webtop
+docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
 docker build -t wktbox/gateway:dev images/gateway
 ```
 
@@ -55,6 +55,38 @@ wktbox open
 `run` cria ou inicia a box antes do comando. `exec` exige que ela já esteja
 pronta. A worktree aparece em `/workspace` tanto no Webtop quanto no DinD; o
 Compose original roda sem reescrita de portas.
+
+## Localhost automático dentro do Webtop
+
+O `ports:` do Compose interno é a fonte de verdade. Para cada porta TCP
+realmente publicada por um container em execução, o Wktbox cria a mesma rota no
+loopback do Webtop. Não há configuração adicional:
+
+```yaml
+services:
+  frontend:
+    ports:
+      - "5173:5173"
+  api:
+    ports:
+      - "8000:3000"
+```
+
+Dentro daquela box, `http://localhost:5173` chega ao frontend e
+`http://localhost:8000` chega à porta 3000 da API. A porta publicada à esquerda
+é preservada; `EXPOSE` sem publicação não cria rota. Duas boxes podem usar o
+mesmo `localhost:5173` porque cada Webtop tem seu próprio namespace de rede.
+
+O sidecar observa eventos do DinD. Containers criados ou removidos depois
+atualizam as rotas sem reiniciar o Webtop. `wktbox run` e `wktbox compose`
+também forçam um sync após o comando bem-sucedido e imprimem o resumo em stderr,
+sem alterar o stdout do processo filho.
+
+Use `wktbox status` ou `wktbox --json status` para ver `listening`, `conflict`,
+origens e destino de cada rota. Uma publicação que colida com uma porta usada
+pelo próprio Webtop aparece como `conflict` sem derrubar outras rotas. UDP é
+reportado como aviso e não é encaminhado; o proxy automático é TCP e preserva
+HTTP, HTTPS, WebSocket, hot reload e protocolos como PostgreSQL.
 
 Para montar um arquivo externo como `/workspace/.env`, somente leitura:
 
@@ -87,7 +119,8 @@ e usa daemon, containers, redes, imagens e volumes próprios.
 - `wktbox shell`: abre Bash, com fallback para `sh`, em `/workspace`.
 - `wktbox open`: abre a URL HTTP conhecida do Webtop.
 - `wktbox list`: lista boxes e reconcilia o cache com os labels Docker.
-- `wktbox status`: mostra estado, worktree, branch, portas e URLs.
+- `wktbox status`: mostra estado, worktree, branch, portas, URLs e rotas
+  automáticas do Webtop.
 - `wktbox logs [serviço]`: mostra logs do Compose externo; aceita `--follow`.
 - `wktbox stop`: para a box preservando volumes, imagens e dados internos.
 - `wktbox restart`: reinicia a infraestrutura externa e valida a prontidão.
@@ -121,7 +154,9 @@ O código de saída do processo executado por `run`, `exec`, `compose` ou `shell
 ## Configuração e gateway
 
 Veja [Configuração](docs/configuration.md) para o schema completo e a precedência.
-Com gateway habilitado, uma rota `frontend` da box `a4f8c9137d2b` é acessada em
+O gateway é independente do localhost automático: ele continua opcional e
+serve para acesso a partir do navegador do host. Com gateway habilitado, uma
+rota `frontend` da box `a4f8c9137d2b` é acessada em
 `http://frontend.a4f8c9137d2b.localhost:<porta-gateway>`. O proxy preserva
 WebSockets e cabeçalhos encaminhados.
 

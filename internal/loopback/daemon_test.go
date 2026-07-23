@@ -143,6 +143,40 @@ func TestDaemonPeriodicResyncRecoversMissedEvent(t *testing.T) {
 	})
 }
 
+func TestDaemonLimitsRepeatedErrorsByClass(t *testing.T) {
+	source := &fakeSource{}
+	reconciler := newTestReconciler()
+	var mutex sync.Mutex
+	var logs []string
+	daemon := loopback.NewDaemon(loopback.DaemonOptions{
+		Source:         source,
+		Reconciler:     reconciler,
+		ResyncInterval: time.Hour,
+		Backoff: loopback.Backoff{
+			Initial: 5 * time.Millisecond,
+			Maximum: 5 * time.Millisecond,
+			Jitter:  0.20,
+		},
+		Random: func() float64 { return 0.5 },
+		Logf: func(format string, _ ...any) {
+			mutex.Lock()
+			defer mutex.Unlock()
+			logs = append(logs, format)
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runDaemon(t, ctx, daemon)
+	waitFor(t, func() bool { return source.subscribeCount() >= 3 })
+	cancel()
+	waitDaemon(t, done)
+
+	mutex.Lock()
+	defer mutex.Unlock()
+	if len(logs) != 1 {
+		t.Fatalf("logs = %#v; want one throttled message", logs)
+	}
+}
+
 type fakeSubscription struct {
 	events chan loopback.Event
 	errors chan error

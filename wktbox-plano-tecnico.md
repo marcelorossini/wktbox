@@ -16,6 +16,7 @@ O Wktbox será uma CLI multiplataforma que cria um ambiente de desenvolvimento i
 - um `.env` de projeto opcional montado sem alterar a worktree;
 - execução de comandos dentro do ambiente;
 - suporte a testes E2E sem remapeamento das portas internas;
+- localhost automático no Webtop para toda porta TCP publicada no DinD;
 - um gateway opcional para acessar serviços pelo navegador do host;
 - estado e ciclo de vida controlados pela CLI.
 
@@ -34,7 +35,29 @@ Dentro da própria worktree:
 wktbox run -- docker compose up --build -d
 ```
 
-O Wktbox deverá garantir que duas worktrees possam executar, simultaneamente, o mesmo Compose contendo portas como `5173:5173`, `8000:8000` e `5432:5432`, sem colisões entre elas.
+O Wktbox garante que duas worktrees executem simultaneamente o mesmo Compose
+contendo portas como `5173:5173`, `8000:3000` e `5432:5432`, sem colisões. As
+mesmas portas ficam disponíveis no `localhost` de cada Webtop.
+
+### 1.1 Atualização implementada: loopback automático
+
+O runtime externo inclui o serviço obrigatório `loopback`, executado pela mesma
+imagem do Webtop com `network_mode: service:webtop`. O binário Go
+`wktbox-loopback` observa a API TLS do DinD, usa apenas
+`NetworkSettings.Ports` de containers em execução e abre listeners TCP
+atômicos em `127.0.0.1` e `::1`. Cada conexão resolve novamente
+`docker:<HostPort>`, portanto a recriação do DinD com outro IP é recuperada sem
+reiniciar o Webtop.
+
+O sidecar expõe controle privado em
+`/run/wktbox-loopback/control.sock`; `run` e `compose` solicitam sync após
+sucesso, enquanto eventos e resync periódico mantêm o estado dinâmico. O
+`wktbox status` mostra rotas `listening`, conflitos e avisos UDP sem persistir
+esse estado em `state.json`.
+
+As portas internas próprias do LinuxServer Webtop são 61000, 61001 e 61002. O
+host publica somente HTTP/HTTPS do Webtop e o gateway opcional; portas das
+aplicações continuam exclusivas ao DinD e não aparecem no host.
 
 ## 2. Problema
 
@@ -67,10 +90,11 @@ O Wktbox resolve o problema criando um Docker daemon completo para cada worktree
 8. Parar, reiniciar e destruir uma box seletivamente.
 9. Listar boxes, estado, caminhos, portas e URLs.
 10. Funcionar inicialmente no Windows com Docker Desktop usando containers Linux.
+11. Expor automaticamente no localhost do Webtop toda porta TCP publicada no
+    DinD.
 
 ### 3.2 Objetivos posteriores
 
-- exposição TCP controlada;
 - gerenciamento de artefatos E2E;
 - cache remoto ou compartilhado de builds;
 - suporte a Linux e macOS;
@@ -104,6 +128,7 @@ O Wktbox resolve o problema criando um Docker daemon completo para cada worktree
 | Project env | `.env` usado pelo projeto e pelo Compose interno |
 | Sandbox env | Variáveis geradas pelo Wktbox para o Compose externo |
 | Gateway | Proxy que expõe serviços internos ao navegador do host |
+| Loopback | Sidecar que espelha portas TCP publicadas no localhost do Webtop |
 
 ## 5. Princípios de projeto
 
@@ -113,7 +138,8 @@ O Wktbox resolve o problema criando um Docker daemon completo para cada worktree
 4. **Nenhuma modificação automática no Compose do projeto.**
 5. **Nenhuma modificação automática no `.env` da worktree.**
 6. **Portas da aplicação permanecem fixas dentro da box.**
-7. **Apenas Webtop, gateway e serviços explicitamente exportados usam portas únicas no host.**
+7. **Apenas Webtop e gateway usam portas únicas no host; portas de aplicação
+   são espelhadas somente dentro do Webtop.**
 8. **Comandos e operações de ciclo de vida devem ser idempotentes.**
 9. **O estado real do Docker deve prevalecer sobre arquivos locais desatualizados.**
 10. **A documentação deve chamar o mecanismo de isolamento operacional, não de sandbox de segurança.**
@@ -128,6 +154,7 @@ flowchart TB
 
     subgraph BOX["Box de uma worktree"]
         WEB["Webtop / runner"]
+        LOOPBACK["Sidecar loopback"]
         DIND["Docker DinD exclusivo"]
         GATEWAY["Gateway HTTP"]
         DDATA["Volume docker-data"]
@@ -137,6 +164,8 @@ flowchart TB
 
     HOSTDOCKER --> BOX
     EXEC --> WEB
+    LOOPBACK -->|"namespace de rede compartilhado"| WEB
+    LOOPBACK -->|"API TLS + eventos"| DIND
     WEB -->|"DOCKER_HOST=tcp://docker:2376"| DIND
     DIND --> DDATA
     DIND --> CERTS
@@ -187,6 +216,7 @@ Executado pelo Docker do host e composto por:
 
 - `docker`: daemon DinD;
 - `webtop`: desktop, terminal e Docker CLI;
+- `loopback`: proxy TCP automático no namespace do Webtop;
 - `gateway`: proxy HTTP opcional;
 - volumes persistentes;
 - rede externa exclusiva da box.
@@ -290,6 +320,9 @@ services:
       TZ: ${TZ}
       PUID: ${PUID}
       PGID: ${PGID}
+      CUSTOM_PORT: "61000"
+      CUSTOM_HTTPS_PORT: "61001"
+      CUSTOM_WS_PORT: "61002"
       DOCKER_HOST: tcp://docker:2376
       DOCKER_TLS_VERIFY: "1"
       DOCKER_CERT_PATH: /certs/client
@@ -303,10 +336,30 @@ services:
         source: ${WORKTREE_PATH}
         target: /workspace
     ports:
-      - "127.0.0.1:${PORT_HTTP}:3000"
-      - "127.0.0.1:${PORT_HTTPS}:3001"
-      - "127.0.0.1:${PORT_SSH}:22"
+      - "127.0.0.1:${PORT_HTTP}:61000"
+      - "127.0.0.1:${PORT_HTTPS}:61001"
     shm_size: ${SHM_SIZE}
+
+  loopback:
+    image: ${WKTBOX_WEBTOP_IMAGE}
+    command: ["wktbox-loopback", "serve"]
+    network_mode: service:webtop
+    depends_on:
+      docker:
+        condition: service_healthy
+      webtop:
+        condition: service_started
+    environment:
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+    volumes:
+      - docker-certs:/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wktbox-loopback status --json >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
 
   gateway:
     image: ${WKTBOX_GATEWAY_IMAGE}
@@ -892,15 +945,18 @@ Requisitos:
 - mensagens claras quando a porta interna ainda não está ouvindo;
 - administração não publicada no host.
 
-### 16.3 Exposição TCP
+### 16.3 Exposição TCP automática no Webtop
 
-Fora do MVP. Futuro comando:
+Implementada sem comando adicional. Um container interno em execução com
+`ports: ["5432:5432"]` produz uma rota
+`localhost:5432 -> docker:5432` no Webtop. Para `"8000:3000"`, o listener usa
+8000, que é o `HostPort` do DinD. A descoberta ignora `EXPOSE` sem publicação e
+reporta UDP como não suportado.
 
-```powershell
-wktbox expose tcp --name postgres --port 5432
-```
-
-O CLI alocará uma porta host e criará um proxy TCP. Não deverá reiniciar o DinD para adicionar uma exposição.
+Eventos do Docker adicionam e removem listeners sem reiniciar o DinD. Um
+conflito afeta somente a porta correspondente e aparece em `wktbox status`.
+Essa exposição não publica a porta no host; acesso host-facing permanece
+responsabilidade do gateway opcional.
 
 ## 17. Testes E2E
 
@@ -918,7 +974,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "8000:3000"
 
   e2e:
     build: ./e2e

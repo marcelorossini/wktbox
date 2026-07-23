@@ -128,7 +128,7 @@ Modified files:
   `Publication` types plus `func Unavailable(error) Status`, used by every later
   task.
 
-- [ ] **Step 1: Write failing table tests for discovery**
+- [x] **Step 1: Write failing table tests for discovery**
 
 ```go
 func TestDiscoverUsesPublishedHostPortAndDeduplicatesOrigins(t *testing.T) {
@@ -169,7 +169,7 @@ func TestDiscoverRejectsStoppedUnpublishedAndUDP(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run discovery tests and verify RED**
+- [x] **Step 2: Run discovery tests and verify RED**
 
 Run:
 
@@ -181,7 +181,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 Expected: FAIL because `wktbox/internal/loopback` and its public types do not
 exist.
 
-- [ ] **Step 3: Implement the exact stable model and deterministic discovery**
+- [x] **Step 3: Implement the exact stable model and deterministic discovery**
 
 ```go
 type PortBinding struct {
@@ -247,7 +247,7 @@ ignore invalid zero ports, produce one warning per UDP source/port pair, and
 sort publications by port, sources lexicographically, and warnings by
 port/source.
 
-- [ ] **Step 4: Run package tests and verify GREEN**
+- [x] **Step 4: Run package tests and verify GREEN**
 
 Run:
 
@@ -258,7 +258,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the discovery slice**
+- [x] **Step 5: Commit the discovery slice**
 
 ```bash
 rtk git add internal/loopback
@@ -283,7 +283,7 @@ rtk git commit -m "feat: descobre portas publicadas no dind"
   `func (*Reconciler) Status() Status`, and
   `func (*Reconciler) Close(context.Context) error`.
 
-- [ ] **Step 1: Write failing real-proxy and reconciliation tests**
+- [x] **Step 1: Write failing real-proxy and reconciliation tests**
 
 ```go
 func TestReconcilerForwardsIPv4AndIPv6ToFreshDockerResolution(t *testing.T) {
@@ -323,7 +323,7 @@ The suite must also assert removal closes both listeners, equal desired state
 reuses listeners, target source changes update status without rebinding, and
 `Close` drains connections for at most 10 seconds.
 
-- [ ] **Step 2: Run the proxy/reconciler tests and verify RED**
+- [x] **Step 2: Run the proxy/reconciler tests and verify RED**
 
 Run:
 
@@ -334,7 +334,7 @@ rtk docker run --rm --network host -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: FAIL with undefined `NewReconciler` and `ReconcilerOptions`.
 
-- [ ] **Step 3: Implement atomic listeners and transparent copying**
+- [x] **Step 3: Implement atomic listeners and transparent copying**
 
 ```go
 type ReconcilerOptions struct {
@@ -370,7 +370,7 @@ when implemented, and closes both connections. `Apply` computes removals,
 retentions, and additions under a mutex; a failed pair is fully closed and
 recorded as `conflict`, never partially installed.
 
-- [ ] **Step 4: Run proxy tests plus race detector and verify GREEN**
+- [x] **Step 4: Run proxy tests plus race detector and verify GREEN**
 
 Run:
 
@@ -381,7 +381,7 @@ rtk docker run --rm --network host -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: PASS with no race report.
 
-- [ ] **Step 5: Commit the proxy slice**
+- [x] **Step 5: Commit the proxy slice**
 
 ```bash
 rtk git add internal/loopback
@@ -411,7 +411,7 @@ rtk git commit -m "feat: reconcilia proxy tcp no loopback"
   `func (*Daemon) Sync(context.Context) (Status, error)`, and
   `func (*Daemon) Status() Status`.
 
-- [ ] **Step 1: Add exact Moby modules and write failing adapter/daemon tests**
+- [x] **Step 1: Add exact Moby modules and write failing adapter/daemon tests**
 
 Add direct requirements:
 
@@ -463,7 +463,7 @@ Docker conversion tests construct Moby inspect responses containing
 `3000/tcp -> HostPort 8000`, `5173/tcp -> HostPort 5173`, an empty binding, and
 `5353/udp`, then assert the neutral `Container` representation.
 
-- [ ] **Step 2: Run daemon tests and verify RED**
+- [x] **Step 2: Run daemon tests and verify RED**
 
 Run:
 
@@ -474,7 +474,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: FAIL because source and daemon implementations are absent.
 
-- [ ] **Step 3: Implement the Moby adapter and synchronization loop**
+- [x] **Step 3: Implement the Moby adapter and synchronization loop**
 
 Create the client with:
 
@@ -512,7 +512,7 @@ backoff. Cancellation closes the source and calls reconciler shutdown with a
 10-second context. A keyed log limiter records the last emission time per error
 class and suppresses repeats for exactly 30 seconds.
 
-- [ ] **Step 4: Run loopback tests and verify GREEN**
+- [x] **Step 4: Run loopback tests and verify GREEN**
 
 Run:
 
@@ -523,7 +523,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: PASS with no race report.
 
-- [ ] **Step 5: Commit the daemon slice**
+- [x] **Step 5: Commit the daemon slice**
 
 ```bash
 rtk git add go.mod go.sum internal/loopback
@@ -556,7 +556,7 @@ type Controller interface {
 }
 ```
 
-- [ ] **Step 1: Write failing socket protocol and command tests**
+- [x] **Step 1: Write failing socket protocol and command tests**
 
 ```go
 func TestControlSyncAndStatusUsePrivateSocket(t *testing.T) {
@@ -581,7 +581,7 @@ Also assert newline-delimited `{"command":"..."}` requests, one JSON response,
 unknown-command errors, status without sync, socket removal on cancellation,
 and command exit 1 when `eventStream != connected`.
 
-- [ ] **Step 2: Run control and command tests and verify RED**
+- [x] **Step 2: Run control and command tests and verify RED**
 
 Run:
 
@@ -593,7 +593,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: FAIL with undefined control functions and absent command package.
 
-- [ ] **Step 3: Implement control protocol and executable**
+- [x] **Step 3: Implement control protocol and executable**
 
 The wire request is:
 
@@ -615,7 +615,7 @@ atomically to `/run/wktbox-loopback/status.json` with `0644`, handles
 call `Request`; `--json` emits one JSON document, while human mode prints
 routes and warnings.
 
-- [ ] **Step 4: Run command tests and a static build**
+- [x] **Step 4: Run command tests and a static build**
 
 Run:
 
@@ -627,7 +627,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: PASS and `/tmp/wktbox-loopback` created inside the build container.
 
-- [ ] **Step 5: Commit the control-plane slice**
+- [x] **Step 5: Commit the control-plane slice**
 
 ```bash
 rtk git add internal/loopback cmd/wktbox-loopback
@@ -652,7 +652,7 @@ rtk git commit -m "feat: expoe controle privado do loopback"
 - Produces: one Webtop image containing `/usr/local/bin/wktbox-loopback` and a
   generated external Compose project whose required sidecar is healthchecked.
 
-- [ ] **Step 1: Write failing generated-Compose assertions**
+- [x] **Step 1: Write failing generated-Compose assertions**
 
 ```go
 func TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts(t *testing.T) {
@@ -675,7 +675,7 @@ func TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts(t *testing.T) {
 
 Extend Compose client tests in Task 6 to require loopback health for readiness.
 
-- [ ] **Step 2: Run render test and verify RED**
+- [x] **Step 2: Run render test and verify RED**
 
 Run:
 
@@ -686,7 +686,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: FAIL because the sidecar and high internal ports are absent.
 
-- [ ] **Step 3: Implement image and Compose integration**
+- [x] **Step 3: Implement image and Compose integration**
 
 The Dockerfile starts with:
 
@@ -741,7 +741,7 @@ mapping. Change every Webtop image build to:
 docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
 ```
 
-- [ ] **Step 4: Run render tests and validate/build Compose**
+- [x] **Step 4: Run render tests and validate/build Compose**
 
 Run:
 
@@ -753,7 +753,7 @@ rtk docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
 
 Expected: tests PASS and image build succeeds with the embedded binary.
 
-- [ ] **Step 5: Commit the runtime slice**
+- [x] **Step 5: Commit the runtime slice**
 
 ```bash
 rtk git add images/webtop/Dockerfile assets/sandbox.compose.yml \
@@ -782,7 +782,7 @@ rtk git commit -m "feat: adiciona sidecar de loopback ao webtop"
   `Manager.SyncLoopback(context.Context, string) (loopback.Status, error)`, and
   transient `BoxRecord.Loopback loopback.Status` tagged `json:"-"`.
 
-- [ ] **Step 1: Write failing readiness, command, and persistence tests**
+- [x] **Step 1: Write failing readiness, command, and persistence tests**
 
 ```go
 func TestInspectRequiresHealthyLoopback(t *testing.T) {
@@ -818,7 +818,7 @@ Manager tests must assert `Ensure` and `Inspect` attach live status,
 status becomes `eventStream: "unavailable"` on inspection without changing box
 readiness to an error.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -830,7 +830,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: compilation fails on missing methods and field.
 
-- [ ] **Step 3: Implement sidecar Compose calls and manager plumbing**
+- [x] **Step 3: Implement sidecar Compose calls and manager plumbing**
 
 Readiness adds:
 
@@ -863,7 +863,7 @@ queries `LoopbackStatus` only while Compose is running. A query error installs
 the same attachment after readiness; `SyncLoopback` is explicit and returns an
 error because successful post-command synchronization is required.
 
-- [ ] **Step 4: Run Compose/state/sandbox tests and verify GREEN**
+- [x] **Step 4: Run Compose/state/sandbox tests and verify GREEN**
 
 Run:
 
@@ -874,7 +874,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: PASS with no race report.
 
-- [ ] **Step 5: Commit host control plumbing**
+- [x] **Step 5: Commit host control plumbing**
 
 ```bash
 rtk git add internal/compose internal/state internal/sandbox
@@ -900,7 +900,7 @@ rtk git commit -m "feat: integra status do loopback a box"
   `Renderer.LoopbackSummary(loopback.Status)`, status JSON field `loopback`, and
   post-success sync behavior.
 
-- [ ] **Step 1: Write failing output and command-behavior tests**
+- [x] **Step 1: Write failing output and command-behavior tests**
 
 ```go
 func TestRunSyncsLoopbackAfterChildAndPreservesStdout(t *testing.T) {
@@ -931,7 +931,7 @@ func TestFailedChildDoesNotReplaceItsExitCodeWithSyncError(t *testing.T) {
 Output tests cover JSON status, conflict rows, UDP warnings, HTTP/HTTPS/tcp
 classification, JSON stderr, and quiet suppression.
 
-- [ ] **Step 2: Run app/output/CLI tests and verify RED**
+- [x] **Step 2: Run app/output/CLI tests and verify RED**
 
 Run:
 
@@ -943,7 +943,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: compilation fails on missing sync and renderer APIs.
 
-- [ ] **Step 3: Implement service and output behavior**
+- [x] **Step 3: Implement service and output behavior**
 
 Extend interfaces with:
 
@@ -972,7 +972,7 @@ for `80,3000,4173,5000,5173,8000,8080`, HTTPS for `443,8443`, and
 `BoxData` includes the same stable `loopback` object. `--quiet` suppresses only
 the diagnostic summary, never child streams.
 
-- [ ] **Step 4: Run app/output/CLI tests and verify GREEN**
+- [x] **Step 4: Run app/output/CLI tests and verify GREEN**
 
 Run:
 
@@ -983,7 +983,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: PASS with no race report.
 
-- [ ] **Step 5: Commit CLI behavior**
+- [x] **Step 5: Commit CLI behavior**
 
 ```bash
 rtk git add internal/app internal/output internal/cli
@@ -1007,7 +1007,7 @@ rtk git commit -m "feat: mostra rotas automaticas na cli"
 - Produces: repeatable black-box acceptance covering every scenario in design
   section 13.3.
 
-- [ ] **Step 1: Change the fixture and write the failing E2E script**
+- [x] **Step 1: Change the fixture and write the failing E2E script**
 
 Use differing backend ports:
 
@@ -1042,7 +1042,7 @@ The E2E script must implement named assertions for:
 Every polling loop has a 60-second deadline and prints loopback status plus
 sidecar logs before failing.
 
-- [ ] **Step 2: Run the E2E and verify RED before the full integration is fixed**
+- [x] **Step 2: Run the E2E and verify RED before the full integration is fixed**
 
 Run:
 
@@ -1054,7 +1054,7 @@ rtk bash tests/e2e/automatic_loopback.sh
 Expected before Tasks 5–7 are green: failure at the first automatic localhost
 assertion or missing loopback status.
 
-- [ ] **Step 3: Complete the E2E implementation and CI target**
+- [x] **Step 3: Complete the E2E implementation and CI target**
 
 Use commands inside Webtop such as:
 
@@ -1074,7 +1074,7 @@ and ports with `docker inspect`, comparing exact box labels.
 Make `make e2e` run both `automatic_loopback.sh` and the existing isolation
 suite. Add the automatic suite to Linux CI because privileged DinD is required.
 
-- [ ] **Step 4: Run the mandatory E2E twice**
+- [x] **Step 4: Run the mandatory E2E twice**
 
 Run:
 
@@ -1085,7 +1085,7 @@ rtk bash tests/e2e/automatic_loopback.sh
 
 Expected: both runs end with `wktbox automatic loopback E2E passed`.
 
-- [ ] **Step 5: Commit acceptance coverage**
+- [x] **Step 5: Commit acceptance coverage**
 
 ```bash
 rtk git add tests/fixtures/compose-project tests/e2e/automatic_loopback.sh \
@@ -1108,7 +1108,7 @@ rtk git commit -m "feat: valida loopback automatico ponta a ponta"
 - Consumes: completed runtime behavior.
 - Produces: accurate user documentation and a checked implementation plan.
 
-- [ ] **Step 1: Write documentation assertions before prose changes**
+- [x] **Step 1: Write documentation assertions before prose changes**
 
 Add/adjust `tests/docs_test.go` expectations for these exact concepts:
 
@@ -1123,7 +1123,7 @@ Add/adjust `tests/docs_test.go` expectations for these exact concepts:
 }
 ```
 
-- [ ] **Step 2: Run documentation tests and verify RED**
+- [x] **Step 2: Run documentation tests and verify RED**
 
 Run:
 
@@ -1134,7 +1134,7 @@ rtk docker run --rm -v "$PWD:/src" -w /src golang:1.26.5 \
 
 Expected: FAIL on missing automatic loopback documentation.
 
-- [ ] **Step 3: Document behavior, diagnostics, security, and platforms**
+- [x] **Step 3: Document behavior, diagnostics, security, and platforms**
 
 Document that inner Compose `ports:` is the source of truth; the published host
 port is reused in Webtop; additions/removals are automatic; `wktbox status`
@@ -1144,7 +1144,7 @@ optional host-facing convenience. State explicitly that the sidecar requires
 Linux network namespaces and Docker Desktop's Linux-container backend on
 Windows/macOS.
 
-- [ ] **Step 4: Run the complete verification matrix**
+- [x] **Step 4: Run the complete verification matrix**
 
 Run:
 
@@ -1164,7 +1164,7 @@ rtk bash tests/e2e/two_worktrees.sh
 Expected: every command exits zero, race output contains no warnings, and both
 E2E scripts print their success line.
 
-- [ ] **Step 5: Audit spec coverage and commit documentation**
+- [x] **Step 5: Audit spec coverage and commit documentation**
 
 Confirm the 13 E2E names appear in `automatic_loopback.sh`, scan for
 placeholders, inspect image/Compose output, and verify `state.json` has no
