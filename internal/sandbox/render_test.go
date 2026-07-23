@@ -201,11 +201,47 @@ func TestSandboxEnvContainsOnlyControlPlaneValues(t *testing.T) {
 		`PORT_HTTP="23000"`,
 		`PORT_GATEWAY="23003"`,
 		`WKTBOX_DIND_IMAGE="docker:29.5.0-dind"`,
+		`GATEWAY_CONFIG_PATH="`,
 	} {
 		if !strings.Contains(body, line) {
 			t.Fatalf("sandbox env missing %q:\n%s", line, body)
 		}
 	}
+}
+
+func TestRenderWritesGatewayRoutesAndBindsGeneratedConfig(t *testing.T) {
+	spec := testSpec()
+	spec.Config.Gateway.Enabled = true
+	spec.Config.Gateway.Routes = map[string]config.Route{
+		"frontend": {Port: 5173},
+		"api":      {Port: 8000},
+	}
+
+	files, err := sandbox.Render(t.TempDir(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gatewayConfig := readFile(t, files.GatewayConfigPath)
+	for _, expected := range []string{
+		"frontend.a4f8c9137d2b.localhost",
+		"proxy_pass http://docker:5173",
+		"api.a4f8c9137d2b.localhost",
+		"proxy_pass http://docker:8000",
+	} {
+		if !strings.Contains(gatewayConfig, expected) {
+			t.Fatalf("gateway config missing %q:\n%s", expected, gatewayConfig)
+		}
+	}
+
+	document := readCompose(t, files.ComposePath)
+	assertBind(
+		t,
+		document.Services["gateway"].Volumes,
+		"${GATEWAY_CONFIG_PATH}",
+		"/etc/nginx/conf.d/default.conf",
+		true,
+	)
 }
 
 func testSpec() sandbox.Spec {

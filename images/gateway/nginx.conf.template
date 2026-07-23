@@ -1,0 +1,13 @@
+server {
+    listen 8080 default_server;
+    server_name _;
+
+    location = /healthz {
+        access_log off;
+        return 204;
+    }
+
+    location / {
+        return 404;
+    }
+}

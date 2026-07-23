@@ -33,6 +33,7 @@ cp -R "$project_root/tests/fixtures/compose-project" "$worktree_a"
 cp -R "$project_root/tests/fixtures/compose-project" "$worktree_b"
 printf 'WKTBOX_TEST_MARKER=box-a\n' >"$test_root/project-a.env"
 printf 'WKTBOX_TEST_MARKER=box-b\n' >"$test_root/project-b.env"
+printf 'server { listen 8080 default_server; return 404; }\n' >"$test_root/gateway.conf"
 
 write_sandbox_env() {
   local destination="$1"
@@ -49,6 +50,7 @@ write_sandbox_env() {
     printf 'PORT_HTTPS=%s\n' "$((port_base + 1))"
     printf 'PORT_SSH=%s\n' "$((port_base + 2))"
     printf 'PORT_GATEWAY=%s\n' "$((port_base + 3))"
+    printf 'GATEWAY_CONFIG_PATH=%s\n' "$test_root/gateway.conf"
     printf 'TZ=UTC\n'
     printf 'PUID=1000\n'
     printf 'PGID=1000\n'

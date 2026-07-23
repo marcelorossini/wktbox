@@ -13,6 +13,7 @@ import (
 	"go.yaml.in/yaml/v4"
 
 	"wktbox/assets"
+	"wktbox/internal/gateway"
 )
 
 var boxIDPattern = regexp.MustCompile(`^[a-f0-9]{12}$`)
@@ -45,13 +46,24 @@ func Render(directory string, spec Spec) (Files, error) {
 	}
 
 	files := Files{
-		ComposePath:    filepath.Join(directory, "compose.yml"),
-		SandboxEnvPath: filepath.Join(directory, "sandbox.env"),
+		ComposePath:       filepath.Join(directory, "compose.yml"),
+		SandboxEnvPath:    filepath.Join(directory, "sandbox.env"),
+		GatewayConfigPath: filepath.Join(directory, "gateway.conf"),
 	}
 	if err := writeProtected(files.ComposePath, assets.SandboxCompose); err != nil {
 		return Files{}, err
 	}
-	if err := writeProtected(files.SandboxEnvPath, renderSandboxEnv(spec)); err != nil {
+	gatewayConfig, err := gateway.Render(spec.Config.Gateway.Routes, spec.ID)
+	if err != nil {
+		return Files{}, err
+	}
+	if err := writeProtected(files.GatewayConfigPath, gatewayConfig); err != nil {
+		return Files{}, err
+	}
+	if err := writeProtected(
+		files.SandboxEnvPath,
+		renderSandboxEnv(spec, files.GatewayConfigPath),
+	); err != nil {
 		return Files{}, err
 	}
 
@@ -98,8 +110,9 @@ func validateSpec(spec Spec) error {
 	return nil
 }
 
-func renderSandboxEnv(spec Spec) []byte {
+func renderSandboxEnv(spec Spec, gatewayConfigPath string) []byte {
 	values := map[string]string{
+		"GATEWAY_CONFIG_PATH":  gatewayConfigPath,
 		"PGID":                 strconv.Itoa(spec.PGID),
 		"PORT_GATEWAY":         strconv.Itoa(spec.Ports.Gateway()),
 		"PORT_HTTP":            strconv.Itoa(spec.Ports.HTTP()),

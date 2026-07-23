@@ -26,6 +26,7 @@ type Files struct {
 	ComposePath            string
 	SandboxEnvPath         string
 	ProjectEnvOverridePath string
+	GatewayConfigPath      string
 }
 
 func (files Files) ComposeFiles() []string {
