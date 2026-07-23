@@ -24,6 +24,10 @@ type composeService struct {
 	Labels      map[string]string `yaml:"labels"`
 	Environment map[string]string `yaml:"environment"`
 	Volumes     []any             `yaml:"volumes"`
+	Command     []string          `yaml:"command"`
+	NetworkMode string            `yaml:"network_mode"`
+	Profiles    []string          `yaml:"profiles"`
+	Ports       []string          `yaml:"ports"`
 }
 
 func TestRenderMountsWorkspaceInDockerAndWebtop(t *testing.T) {
@@ -50,6 +54,58 @@ func TestRenderMountsWorkspaceInDockerAndWebtop(t *testing.T) {
 	}
 	if strings.Contains(body, "PROJECT_ENV_PATH") {
 		t.Fatal("base Compose unexpectedly requires a project env")
+	}
+}
+
+func TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts(t *testing.T) {
+	files, err := sandbox.Render(t.TempDir(), testSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := readCompose(t, files.ComposePath)
+
+	webtop := document.Services["webtop"]
+	for key, want := range map[string]string{
+		"CUSTOM_PORT":       "61000",
+		"CUSTOM_HTTPS_PORT": "61001",
+		"CUSTOM_WS_PORT":    "61002",
+	} {
+		if got := webtop.Environment[key]; got != want {
+			t.Fatalf("webtop %s = %q; want %q", key, got, want)
+		}
+	}
+	if !reflect.DeepEqual(webtop.Ports, []string{
+		"127.0.0.1:${PORT_HTTP}:61000",
+		"127.0.0.1:${PORT_HTTPS}:61001",
+	}) {
+		t.Fatalf("webtop ports = %#v", webtop.Ports)
+	}
+
+	loopbackService, exists := document.Services["loopback"]
+	if !exists {
+		t.Fatal("required loopback service is missing")
+	}
+	if loopbackService.NetworkMode != "service:webtop" {
+		t.Fatalf("loopback network mode = %q", loopbackService.NetworkMode)
+	}
+	if !reflect.DeepEqual(loopbackService.Command, []string{"wktbox-loopback", "serve"}) {
+		t.Fatalf("loopback command = %#v", loopbackService.Command)
+	}
+	if len(loopbackService.Profiles) != 0 {
+		t.Fatalf("loopback unexpectedly has profiles: %#v", loopbackService.Profiles)
+	}
+	body := readFile(t, files.ComposePath)
+	for _, required := range []string{
+		"wktbox-loopback status --json",
+		"docker-certs:/certs:ro",
+		"condition: service_started",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("compose missing %q:\n%s", required, body)
+		}
+	}
+	if strings.Contains(body, "${PORT_SSH}:22") {
+		t.Fatal("reserved SSH offset is still published")
 	}
 }
 

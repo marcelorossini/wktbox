@@ -27,12 +27,13 @@ jobs:
         run: ./scripts/build.sh ci
       - name: Build runtime images
         run: |
-          docker build -t wktbox/webtop:dev images/webtop
+          docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
           docker build -t wktbox/gateway:dev images/gateway
       - name: Smoke runtime images
         run: |
           docker run --rm --entrypoint docker wktbox/webtop:dev --version
           docker run --rm --entrypoint docker wktbox/webtop:dev compose version
+          docker run --rm wktbox/webtop:dev wktbox-loopback --help
           docker run --rm wktbox/gateway:dev nginx -t
       - name: Run two-worktree E2E
         run: bash tests/e2e/two_worktrees.sh

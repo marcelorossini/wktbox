@@ -81,7 +81,8 @@ printf 'WKTBOX_TEST_MARKER=box-b\n' >"$env_b"
 export WKTBOX_STATE_HOME="$state_root"
 
 make -C "$project_root" build >/dev/null
-docker build -q -t wktbox/webtop:dev "$project_root/images/webtop" >/dev/null
+docker build -q -f "$project_root/images/webtop/Dockerfile" \
+  -t wktbox/webtop:dev "$project_root" >/dev/null
 docker build -q -t wktbox/gateway:dev "$project_root/images/gateway" >/dev/null
 
 cold_started="$SECONDS"

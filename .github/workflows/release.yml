@@ -44,9 +44,10 @@ jobs:
           repository="${REPOSITORY,,}"
           version="${VERSION#v}"
           docker buildx build --platform linux/amd64,linux/arm64 \
+            --file images/webtop/Dockerfile \
             --tag "$REGISTRY/$repository/webtop:$version" \
             --tag "$REGISTRY/$repository/webtop:latest" \
-            --push images/webtop
+            --push .
           docker buildx build --platform linux/amd64,linux/arm64 \
             --tag "$REGISTRY/$repository/gateway:$version" \
             --tag "$REGISTRY/$repository/gateway:latest" \

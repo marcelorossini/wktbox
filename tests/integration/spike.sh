@@ -64,7 +64,8 @@ write_sandbox_env() {
 write_sandbox_env "$env_a" "$worktree_a" "$test_root/project-a.env" 23100
 write_sandbox_env "$env_b" "$worktree_b" "$test_root/project-b.env" 23110
 
-docker build -t wktbox/webtop:dev "$project_root/images/webtop"
+docker build -f "$project_root/images/webtop/Dockerfile" \
+  -t wktbox/webtop:dev "$project_root"
 
 startup_started="$SECONDS"
 compose "$project_a" "$env_a" up -d --wait

@@ -29,7 +29,7 @@ vet:
 	$(GO_CONTAINER) go vet ./...
 
 images:
-	docker build -t wktbox/webtop:dev images/webtop
+	docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
 	docker build -t wktbox/gateway:dev images/gateway
 
 e2e:
