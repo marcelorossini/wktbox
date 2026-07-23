@@ -33,6 +33,7 @@ images:
 	docker build -t wktbox/gateway:dev images/gateway
 
 e2e:
+	bash tests/e2e/automatic_loopback.sh
 	bash tests/e2e/two_worktrees.sh
 
 release:

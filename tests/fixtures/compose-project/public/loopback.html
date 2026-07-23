@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <title>Wktbox automatic loopback</title>
+  <body>
+    <div id="http-result">wktbox fixture</div>
+    <div id="websocket-result">pending</div>
+    <script>
+      const socket = new WebSocket(`ws://${location.host}/ws`);
+      socket.addEventListener("open", () => socket.send("wktbox-websocket-ok"));
+      socket.addEventListener("message", (event) => {
+        document.querySelector("#websocket-result").textContent = event.data;
+        socket.close();
+      });
+      socket.addEventListener("error", () => {
+        document.querySelector("#websocket-result").textContent = "websocket-error";
+      });
+    </script>
+  </body>
+</html>

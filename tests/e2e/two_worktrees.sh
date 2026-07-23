@@ -167,9 +167,16 @@ assert_doctor_check "$doctor_a" dind_tls pass
 
 rm -f "$state_root/state.json"
 recovered="$("$wktbox" --json list)"
-recovered_count="$(printf '%s' "$recovered" | python3 -c \
-  'import json,sys; print(len(json.load(sys.stdin)))')"
-[[ "$recovered_count" -eq 2 ]]
+printf '%s' "$recovered" | python3 -c '
+import json
+import sys
+
+expected = set(sys.argv[1:])
+actual = {box["id"] for box in json.load(sys.stdin)}
+missing = expected - actual
+if missing:
+    raise SystemExit(f"managed boxes were not recovered: {sorted(missing)}")
+' "$id_a" "$id_b"
 assert_json_status "$("$wktbox" --path "$worktree_a" --json status)" ready
 assert_json_status "$("$wktbox" --path "$worktree_b" --json status)" ready
 

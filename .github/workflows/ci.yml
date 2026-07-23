@@ -35,5 +35,7 @@ jobs:
           docker run --rm --entrypoint docker wktbox/webtop:dev compose version
           docker run --rm wktbox/webtop:dev wktbox-loopback --help
           docker run --rm wktbox/gateway:dev nginx -t
+      - name: Run automatic-loopback E2E
+        run: bash tests/e2e/automatic_loopback.sh
       - name: Run two-worktree E2E
         run: bash tests/e2e/two_worktrees.sh

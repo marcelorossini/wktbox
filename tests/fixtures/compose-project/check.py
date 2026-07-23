@@ -12,7 +12,7 @@ frontend = urllib.request.urlopen(
 if "wktbox fixture" not in frontend:
     raise SystemExit(f"unexpected frontend response: {frontend!r}")
 
-backend = urllib.request.urlopen("http://backend:8000", timeout=5).read().decode()
+backend = urllib.request.urlopen("http://backend:3000", timeout=5).read().decode()
 if backend != expected:
     raise SystemExit(f"backend marker {backend!r}, expected {expected!r}")
 
