@@ -173,7 +173,7 @@ func routeFromPublication(publication Publication, state string, detail string) 
 	return Route{
 		Port:     publication.Port,
 		Target:   publication.Target,
-		Sources:  append([]string(nil), publication.Sources...),
+		Sources:  cloneStrings(publication.Sources),
 		Protocol: "tcp",
 		State:    state,
 		Error:    detail,
@@ -181,22 +181,37 @@ func routeFromPublication(publication Publication, state string, detail string) 
 }
 
 func clonePublication(publication Publication) Publication {
-	publication.Sources = append([]string(nil), publication.Sources...)
+	publication.Sources = cloneStrings(publication.Sources)
 	return publication
 }
 
 func cloneWarnings(warnings []Warning) []Warning {
 	if warnings == nil {
-		return []Warning{}
+		return nil
 	}
-	return append([]Warning(nil), warnings...)
+	result := make([]Warning, len(warnings))
+	copy(result, warnings)
+	return result
 }
 
 func cloneStatus(status Status) Status {
-	status.Routes = append([]Route(nil), status.Routes...)
+	if status.Routes != nil {
+		routes := make([]Route, len(status.Routes))
+		copy(routes, status.Routes)
+		status.Routes = routes
+	}
 	for index := range status.Routes {
-		status.Routes[index].Sources = append([]string(nil), status.Routes[index].Sources...)
+		status.Routes[index].Sources = cloneStrings(status.Routes[index].Sources)
 	}
 	status.Warnings = cloneWarnings(status.Warnings)
 	return status
+}
+
+func cloneStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	result := make([]string, len(values))
+	copy(result, values)
+	return result
 }
