@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
 )
@@ -50,15 +51,18 @@ func (status Status) Ready() bool {
 	}
 	dockerReady := false
 	webtopReady := false
+	loopbackReady := false
 	for _, container := range status.Containers {
 		switch container.Service {
 		case "docker":
 			dockerReady = container.State == "running" && container.Health == "healthy"
 		case "webtop":
 			webtopReady = container.State == "running"
+		case "loopback":
+			loopbackReady = container.State == "running" && container.Health == "healthy"
 		}
 	}
-	return dockerReady && webtopReady
+	return dockerReady && webtopReady && loopbackReady
 }
 
 type ManagedProject struct {
@@ -79,6 +83,8 @@ type Backend interface {
 	Down(context.Context, Project, bool) error
 	Inspect(context.Context, Project) (Status, error)
 	ListManaged(context.Context) ([]ManagedProject, error)
+	LoopbackStatus(context.Context, Project) (loopback.Status, error)
+	LoopbackSync(context.Context, Project) (loopback.Status, error)
 }
 
 type Client struct {
@@ -149,7 +155,7 @@ func (client Client) Inspect(ctx context.Context, project Project) (Status, erro
 
 const managedFormat = `{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label "io.wktbox.box-id"}}\t{{.Label "io.wktbox.worktree"}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}\t{{.Status}}\t{{.Ports}}`
 
-var webtopHTTPPortPattern = regexp.MustCompile(`(?:127\.0\.0\.1|\[::1\]):(\d+)->3000/tcp`)
+var webtopHTTPPortPattern = regexp.MustCompile(`(?:127\.0\.0\.1|\[::1\]):(\d+)->61000/tcp`)
 
 func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) {
 	result, err := client.runner.Run(
@@ -167,10 +173,11 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 	}
 
 	type accumulator struct {
-		project       ManagedProject
-		running       bool
-		dockerHealthy bool
-		webtopRunning bool
+		project         ManagedProject
+		running         bool
+		dockerHealthy   bool
+		webtopRunning   bool
+		loopbackHealthy bool
 	}
 	grouped := make(map[string]*accumulator)
 	scanner := bufio.NewScanner(strings.NewReader(result.Stdout))
@@ -217,6 +224,9 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 					}
 				}
 			}
+		case "loopback":
+			entry.loopbackHealthy = containerRunning &&
+				strings.Contains(strings.ToLower(statusText), "(healthy)")
 		case "gateway":
 			entry.project.GatewayEnabled = true
 		}
@@ -230,13 +240,54 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 		if entry.running {
 			entry.project.State = Running
 		}
-		entry.project.Healthy = entry.dockerHealthy && entry.webtopRunning
+		entry.project.Healthy = entry.dockerHealthy &&
+			entry.webtopRunning &&
+			entry.loopbackHealthy
 		projects = append(projects, entry.project)
 	}
 	sort.Slice(projects, func(left int, right int) bool {
 		return projects[left].ID < projects[right].ID
 	})
 	return projects, nil
+}
+
+func (client Client) LoopbackStatus(
+	ctx context.Context,
+	project Project,
+) (loopback.Status, error) {
+	return client.loopbackCommand(ctx, project, "status")
+}
+
+func (client Client) LoopbackSync(
+	ctx context.Context,
+	project Project,
+) (loopback.Status, error) {
+	return client.loopbackCommand(ctx, project, "sync")
+}
+
+func (client Client) loopbackCommand(
+	ctx context.Context,
+	project Project,
+	command string,
+) (loopback.Status, error) {
+	result, err := client.run(
+		ctx,
+		project,
+		"exec",
+		"-T",
+		"loopback",
+		"wktbox-loopback",
+		command,
+		"--json",
+	)
+	if err != nil {
+		return loopback.Status{}, err
+	}
+	var status loopback.Status
+	if err := json.Unmarshal([]byte(result.Stdout), &status); err != nil {
+		return loopback.Status{}, fmt.Errorf("decode loopback %s status: %w", command, err)
+	}
+	return status, nil
 }
 
 func (client Client) run(

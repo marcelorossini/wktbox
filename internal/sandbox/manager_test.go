@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"wktbox/internal/compose"
 	"wktbox/internal/lock"
+	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
 	"wktbox/internal/sandbox"
 	"wktbox/internal/state"
@@ -25,6 +27,10 @@ type fakeBackend struct {
 	downCalls    []downCall
 	upErr        error
 	err          error
+	loopback     loopback.Status
+	loopbackErr  error
+	statusCalls  []compose.Project
+	syncCalls    []compose.Project
 }
 
 type downCall struct {
@@ -75,6 +81,22 @@ func (backend *fakeBackend) ListManaged(context.Context) ([]compose.ManagedProje
 	return backend.managed, backend.err
 }
 
+func (backend *fakeBackend) LoopbackStatus(
+	_ context.Context,
+	project compose.Project,
+) (loopback.Status, error) {
+	backend.statusCalls = append(backend.statusCalls, project)
+	return backend.loopback, backend.loopbackErr
+}
+
+func (backend *fakeBackend) LoopbackSync(
+	_ context.Context,
+	project compose.Project,
+) (loopback.Status, error) {
+	backend.syncCalls = append(backend.syncCalls, project)
+	return backend.loopback, backend.loopbackErr
+}
+
 func TestEnsureCreatesStartsAndPersistsReadyBox(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
@@ -105,6 +127,77 @@ func TestEnsureCreatesStartsAndPersistsReadyBox(t *testing.T) {
 	}
 	if _, err := os.Stat(got.ComposePath); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEnsureAndInspectAttachTransientLoopbackStatus(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	want := loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+		Routes: []loopback.Route{{
+			Port: 5173,
+		}},
+	}
+	backend := &fakeBackend{status: readyComposeStatus(), loopback: want}
+	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
+
+	ensured, err := manager.Ensure(context.Background(), testSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ensured.Loopback, want) {
+		t.Fatalf("ensure loopback = %#v", ensured.Loopback)
+	}
+	inspected, err := manager.Inspect(context.Background(), ensured.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(inspected.Loopback, want) {
+		t.Fatalf("inspect loopback = %#v", inspected.Loopback)
+	}
+	if len(backend.statusCalls) != 2 {
+		t.Fatalf("status calls = %d; want 2", len(backend.statusCalls))
+	}
+}
+
+func TestInspectReportsUnavailableLoopbackWithoutFailingBox(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	record := existingRecord(t, store, state.Ready)
+	saveState(t, store, record)
+	backend := &fakeBackend{
+		status:      readyComposeStatus(),
+		loopbackErr: errors.New("sidecar unavailable"),
+	}
+	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
+
+	got, err := manager.Inspect(context.Background(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != state.Ready ||
+		got.Loopback.EventStream != loopback.EventStreamUnavailable {
+		t.Fatalf("box = %#v", got)
+	}
+}
+
+func TestSyncLoopbackDelegatesToSelectedProject(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	record := existingRecord(t, store, state.Ready)
+	saveState(t, store, record)
+	want := loopback.Status{EventStream: loopback.EventStreamConnected}
+	backend := &fakeBackend{loopback: want}
+	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
+
+	got, err := manager.SyncLoopback(context.Background(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) || len(backend.syncCalls) != 1 ||
+		backend.syncCalls[0].Name != record.ProjectName {
+		t.Fatalf("status=%#v calls=%#v", got, backend.syncCalls)
 	}
 }
 
@@ -384,6 +477,7 @@ func readyComposeStatus() compose.Status {
 		Containers: []compose.ContainerStatus{
 			{Service: "docker", State: "running", Health: "healthy"},
 			{Service: "webtop", State: "running"},
+			{Service: "loopback", State: "running", Health: "healthy"},
 		},
 	}
 }

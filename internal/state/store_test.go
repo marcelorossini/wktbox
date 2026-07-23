@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"wktbox/internal/loopback"
 	"wktbox/internal/state"
 )
 
@@ -75,6 +77,34 @@ func TestSaveHonorsCancelledContext(t *testing.T) {
 	err := state.NewStore(t.TempDir()).Save(ctx, state.Empty())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSaveDoesNotPersistTransientLoopbackStatus(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	current := state.Empty()
+	current.Boxes["abc"] = state.BoxRecord{
+		ID:          "abc",
+		ProjectName: "wktbox-abc",
+		Loopback: loopback.Status{
+			EventStream: loopback.EventStreamConnected,
+			Routes: []loopback.Route{{
+				Port: 5173,
+			}},
+		},
+	}
+
+	if err := store.Save(context.Background(), current); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(root, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "loopback") ||
+		strings.Contains(string(body), "eventStream") {
+		t.Fatalf("transient loopback status was persisted:\n%s", body)
 	}
 }
 

@@ -3,6 +3,7 @@ package state
 import (
 	"time"
 
+	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
 )
 
@@ -24,19 +25,20 @@ type State struct {
 }
 
 type BoxRecord struct {
-	ID                     string      `json:"id"`
-	Name                   string      `json:"name"`
-	Worktree               string      `json:"worktree"`
-	Branch                 string      `json:"branch,omitempty"`
-	ProjectName            string      `json:"projectName"`
-	Status                 Status      `json:"status"`
-	Ports                  ports.Block `json:"ports"`
-	ComposePath            string      `json:"composePath"`
-	SandboxEnvPath         string      `json:"sandboxEnvPath"`
-	ProjectEnvOverridePath string      `json:"projectEnvOverridePath,omitempty"`
-	GatewayEnabled         bool        `json:"gatewayEnabled,omitempty"`
-	CreatedAt              time.Time   `json:"createdAt"`
-	LastUsedAt             time.Time   `json:"lastUsedAt"`
+	ID                     string          `json:"id"`
+	Name                   string          `json:"name"`
+	Worktree               string          `json:"worktree"`
+	Branch                 string          `json:"branch,omitempty"`
+	ProjectName            string          `json:"projectName"`
+	Status                 Status          `json:"status"`
+	Ports                  ports.Block     `json:"ports"`
+	ComposePath            string          `json:"composePath"`
+	SandboxEnvPath         string          `json:"sandboxEnvPath"`
+	ProjectEnvOverridePath string          `json:"projectEnvOverridePath,omitempty"`
+	GatewayEnabled         bool            `json:"gatewayEnabled,omitempty"`
+	CreatedAt              time.Time       `json:"createdAt"`
+	LastUsedAt             time.Time       `json:"lastUsedAt"`
+	Loopback               loopback.Status `json:"-"`
 }
 
 func Empty() State {

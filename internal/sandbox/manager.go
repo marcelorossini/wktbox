@@ -11,6 +11,7 @@ import (
 
 	"wktbox/internal/compose"
 	"wktbox/internal/lock"
+	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
 	"wktbox/internal/state"
 )
@@ -127,6 +128,7 @@ func (manager Manager) ensure(
 	}
 	if exists && inspectErr == nil && realStatus.Ready() && !requiresComposeApply {
 		record.Status = state.Ready
+		record = manager.attachLoopback(ctx, record, realStatus)
 		current.Boxes[record.ID] = record
 		if err := manager.store.Save(ctx, current); err != nil {
 			return state.BoxRecord{}, err
@@ -163,6 +165,7 @@ func (manager Manager) ensure(
 	}
 
 	record.Status = state.Ready
+	record = manager.attachLoopback(ctx, record, realStatus)
 	current.Boxes[record.ID] = record
 	if err := manager.store.Save(ctx, current); err != nil {
 		return state.BoxRecord{}, err
@@ -190,11 +193,37 @@ func (manager Manager) Inspect(ctx context.Context, id string) (state.BoxRecord,
 		return state.BoxRecord{}, err
 	}
 	record.Status = statusFromCompose(realStatus)
+	record = manager.attachLoopback(ctx, record, realStatus)
 	current.Boxes[id] = record
 	if err := manager.store.Save(ctx, current); err != nil {
 		return state.BoxRecord{}, err
 	}
 	return record, nil
+}
+
+func (manager Manager) SyncLoopback(
+	ctx context.Context,
+	id string,
+) (loopback.Status, error) {
+	unlock, err := manager.lockBox(ctx, id)
+	if err != nil {
+		return loopback.Status{}, err
+	}
+	defer unlock()
+
+	current, err := manager.loadAndReconcile(ctx)
+	if err != nil {
+		return loopback.Status{}, err
+	}
+	record, exists := current.Boxes[id]
+	if !exists {
+		return loopback.Status{}, fmt.Errorf("%w: %s", ErrBoxNotFound, id)
+	}
+	status, err := manager.backend.LoopbackSync(ctx, projectFor(record))
+	if err != nil {
+		return loopback.Status{}, fmt.Errorf("sync box loopback: %w", err)
+	}
+	return status, nil
 }
 
 func (manager Manager) List(ctx context.Context) ([]state.BoxRecord, error) {
@@ -457,4 +486,22 @@ func statusFromCompose(status compose.Status) state.Status {
 		return state.Stopped
 	}
 	return state.Error
+}
+
+func (manager Manager) attachLoopback(
+	ctx context.Context,
+	record state.BoxRecord,
+	status compose.Status,
+) state.BoxRecord {
+	if !status.Exists || status.State != compose.Running {
+		record.Loopback = loopback.Unavailable(errors.New("box is not running"))
+		return record
+	}
+	dynamic, err := manager.backend.LoopbackStatus(ctx, projectFor(record))
+	if err != nil {
+		record.Loopback = loopback.Unavailable(err)
+		return record
+	}
+	record.Loopback = dynamic
+	return record
 }
