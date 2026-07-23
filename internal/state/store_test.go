@@ -1,0 +1,86 @@
+package state_test
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+
+	"wktbox/internal/state"
+)
+
+func TestSaveIsAtomicAndRoundTrips(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	want := state.State{
+		Version: 1,
+		Boxes: map[string]state.BoxRecord{
+			"abc": {
+				ID:          "abc",
+				Name:        "feature-auth",
+				Worktree:    "/repo",
+				ProjectName: "wktbox-abc",
+				Status:      state.Ready,
+				CreatedAt:   time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	if err := store.Save(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("state = %#v, want %#v", got, want)
+	}
+	info, err := os.Stat(filepath.Join(store.Root(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("state permissions = %o", info.Mode().Perm())
+	}
+}
+
+func TestLoadMissingReturnsEmptyVersionedState(t *testing.T) {
+	got, err := state.NewStore(t.TempDir()).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != 1 || got.Boxes == nil || len(got.Boxes) != 0 {
+		t.Fatalf("state = %#v", got)
+	}
+}
+
+func TestLoadRejectsCorruptState(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.json"), []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := state.NewStore(root).Load(context.Background())
+	if !errors.Is(err, state.ErrCorrupt) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSaveHonorsCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := state.NewStore(t.TempDir()).Save(ctx, state.Empty())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestBoxDirRejectsUnsafeID(t *testing.T) {
+	_, err := state.NewStore(t.TempDir()).BoxDir("../other")
+	if !errors.Is(err, state.ErrInvalidBoxID) {
+		t.Fatalf("error = %v", err)
+	}
+}
