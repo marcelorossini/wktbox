@@ -5,7 +5,10 @@
 /.wktbox-artifacts/
 /.worktrees/
 /testResults.xml
+/tmp/agent-evaluations/
 /.idea/
 /.vscode/
 *.tmp
 *.log
+__pycache__/
+*.py[cod]

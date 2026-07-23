@@ -7,7 +7,10 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: build e2e fmt images install-test release release-build release-verify spike test test-race vet
+.PHONY: agent-scorer-test build e2e fmt images install-test release release-build release-verify spike test test-race vet
+
+agent-scorer-test:
+	bash tests/agents/evaluate.sh self-test
 
 build:
 	mkdir -p bin
