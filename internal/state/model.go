@@ -34,6 +34,7 @@ type BoxRecord struct {
 	ComposePath            string      `json:"composePath"`
 	SandboxEnvPath         string      `json:"sandboxEnvPath"`
 	ProjectEnvOverridePath string      `json:"projectEnvOverridePath,omitempty"`
+	GatewayEnabled         bool        `json:"gatewayEnabled,omitempty"`
 	CreatedAt              time.Time   `json:"createdAt"`
 	LastUsedAt             time.Time   `json:"lastUsedAt"`
 }
