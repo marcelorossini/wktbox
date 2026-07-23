@@ -62,12 +62,13 @@ func (status Status) Ready() bool {
 }
 
 type ManagedProject struct {
-	ID          string
-	Worktree    string
-	ProjectName string
-	State       RuntimeState
-	Healthy     bool
-	Ports       ports.Block
+	ID             string
+	Worktree       string
+	ProjectName    string
+	State          RuntimeState
+	Healthy        bool
+	Ports          ports.Block
+	GatewayEnabled bool
 }
 
 type Backend interface {
@@ -216,6 +217,8 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 					}
 				}
 			}
+		case "gateway":
+			entry.project.GatewayEnabled = true
 		}
 	}
 	if err := scanner.Err(); err != nil {

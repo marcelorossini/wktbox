@@ -398,6 +398,7 @@ func (manager Manager) loadAndReconcileUnlocked(ctx context.Context) (state.Stat
 		if actual.Ports.Size != 0 {
 			record.Ports = actual.Ports
 		}
+		record.GatewayEnabled = actual.GatewayEnabled
 		if actual.State == compose.Running && actual.Healthy {
 			record.Status = state.Ready
 		} else if actual.State == compose.Stopped {

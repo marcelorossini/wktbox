@@ -287,12 +287,13 @@ func TestListRecoversManagedBoxAfterStateLoss(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
 	backend := &fakeBackend{managed: []compose.ManagedProject{{
-		ID:          "a4f8c9137d2b",
-		Worktree:    "/repo/feature-auth",
-		ProjectName: "wktbox-a4f8c9137d2b",
-		State:       compose.Running,
-		Healthy:     true,
-		Ports:       ports.Block{Start: 23000, Size: 10},
+		ID:             "a4f8c9137d2b",
+		Worktree:       "/repo/feature-auth",
+		ProjectName:    "wktbox-a4f8c9137d2b",
+		State:          compose.Running,
+		Healthy:        true,
+		Ports:          ports.Block{Start: 23000, Size: 10},
+		GatewayEnabled: true,
 	}}}
 	manager := sandbox.NewManager(backend, store, lock.NewManager(root), time.Now)
 
@@ -302,6 +303,9 @@ func TestListRecoversManagedBoxAfterStateLoss(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "a4f8c9137d2b" || got[0].Status != state.Ready {
 		t.Fatalf("boxes = %#v", got)
+	}
+	if !got[0].GatewayEnabled {
+		t.Fatalf("gateway profile was not recovered: %#v", got[0])
 	}
 	saved, _ := store.Load(context.Background())
 	if _, exists := saved.Boxes["a4f8c9137d2b"]; !exists {

@@ -118,6 +118,7 @@ func TestListManagedGroupsContainersByBoxLabel(t *testing.T) {
 	output := strings.Join([]string{
 		"container-a\tdocker-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\tdocker\tUp 1 minute (healthy)\t",
 		"container-b\twebtop-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\twebtop\tUp 1 minute\t127.0.0.1:23000->3000/tcp",
+		"container-c\tgateway-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\tgateway\tUp 1 minute\t127.0.0.1:23003->8080/tcp",
 	}, "\n")
 	runner := &recordingRunner{results: []process.Result{{Stdout: output}}}
 	client := compose.NewClient(runner)
@@ -135,6 +136,9 @@ func TestListManagedGroupsContainersByBoxLabel(t *testing.T) {
 	}
 	if !got[0].Healthy || got[0].Ports != (ports.Block{Start: 23000, Size: 10}) {
 		t.Fatalf("managed health/ports = %#v", got[0])
+	}
+	if !got[0].GatewayEnabled {
+		t.Fatalf("managed gateway was not recovered: %#v", got[0])
 	}
 }
 
