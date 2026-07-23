@@ -1,0 +1,13 @@
+services:
+  docker:
+    volumes:
+      - type: bind
+        source: ${PROJECT_ENV_PATH}
+        target: /workspace/.env
+        read_only: true
+  webtop:
+    volumes:
+      - type: bind
+        source: ${PROJECT_ENV_PATH}
+        target: /workspace/.env
+        read_only: true

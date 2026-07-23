@@ -18,6 +18,7 @@ compose() {
     -p "$project" \
     --env-file "$env_file" \
     -f "$project_root/assets/sandbox.compose.yml" \
+    -f "$project_root/tests/fixtures/project-env.override.yml" \
     "$@"
 }
 
@@ -53,6 +54,7 @@ write_sandbox_env() {
     printf 'PGID=1000\n'
     printf 'SHM_SIZE=1gb\n'
     printf 'WKTBOX_DIND_IMAGE=docker:29.5.0-dind\n'
+    printf 'WKTBOX_GATEWAY_IMAGE=wktbox/gateway:dev\n'
     printf 'WKTBOX_WEBTOP_IMAGE=wktbox/webtop:dev\n'
   } >"$destination"
 }

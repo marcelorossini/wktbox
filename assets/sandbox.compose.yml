@@ -17,10 +17,6 @@ services:
       - type: bind
         source: ${WORKTREE_PATH}
         target: /workspace
-      - type: bind
-        source: ${PROJECT_ENV_PATH}
-        target: /workspace/.env
-        read_only: true
     healthcheck:
       test:
         - CMD-SHELL
@@ -55,21 +51,36 @@ services:
       io.wktbox.version: ${WKTBOX_VERSION}
     volumes:
       - docker-certs:/certs:ro
+      - webtop-config:/config
       - artifacts:/artifacts
       - type: bind
         source: ${WORKTREE_PATH}
         target: /workspace
-      - type: bind
-        source: ${PROJECT_ENV_PATH}
-        target: /workspace/.env
-        read_only: true
     ports:
       - 127.0.0.1:${PORT_HTTP}:3000
       - 127.0.0.1:${PORT_HTTPS}:3001
       - 127.0.0.1:${PORT_SSH}:22
     shm_size: ${SHM_SIZE}
 
+  gateway:
+    image: ${WKTBOX_GATEWAY_IMAGE}
+    profiles: ["gateway"]
+    depends_on:
+      docker:
+        condition: service_healthy
+    labels:
+      io.wktbox.managed: "true"
+      io.wktbox.box-id: ${WKTBOX_ID}
+      io.wktbox.worktree: ${WORKTREE_PATH}
+      io.wktbox.version: ${WKTBOX_VERSION}
+    volumes:
+      - gateway-config:/etc/wktbox-gateway:ro
+    ports:
+      - 127.0.0.1:${PORT_GATEWAY}:8080
+
 volumes:
   docker-data:
   docker-certs:
+  webtop-config:
+  gateway-config:
   artifacts:
