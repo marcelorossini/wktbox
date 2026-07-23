@@ -7,7 +7,7 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: build e2e fmt images release spike test test-race vet
+.PHONY: build e2e fmt images release release-build release-verify spike test test-race vet
 
 build:
 	mkdir -p bin
@@ -38,3 +38,9 @@ e2e:
 
 release:
 	$(GO_CONTAINER) bash scripts/build.sh "$${WKTBOX_VERSION:-dev}"
+
+release-build:
+	./scripts/build.sh "$(VERSION)"
+
+release-verify:
+	sha256sum --check dist/checksums.txt
