@@ -200,10 +200,10 @@ func (manager Manager) ensurePortRecordPaths(
 ) state.BoxRecord {
 	directory := filepath.Dir(record.ComposePath)
 	if record.PortConfigPath == "" {
-		record.PortConfigPath = filepath.Join(directory, "ports.json")
+		record.PortConfigPath = filepath.Join(directory, "ports", "ports.json")
 	}
 	if record.PortRelayTokenPath == "" {
-		record.PortRelayTokenPath = filepath.Join(directory, "port-relay.token")
+		record.PortRelayTokenPath = filepath.Join(directory, "ports", "relay.token")
 	}
 	return record
 }
@@ -219,9 +219,12 @@ func (manager Manager) applyPortMappings(
 	portforward.Sort(candidate.PortMappings)
 	candidate.LastUsedAt = manager.now().UTC()
 	overridePath := filepath.Join(
-		filepath.Dir(candidate.PortConfigPath),
+		filepath.Dir(candidate.ComposePath),
 		"ports.override.yml",
 	)
+	if err := os.MkdirAll(filepath.Dir(candidate.PortConfigPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create port runtime directory: %w", err)
+	}
 	configSnapshot, err := capturePortFile(candidate.PortConfigPath)
 	if err != nil {
 		return nil, err

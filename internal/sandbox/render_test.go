@@ -30,6 +30,8 @@ type composeService struct {
 	NetworkMode string            `yaml:"network_mode"`
 	PID         string            `yaml:"pid"`
 	CapAdd      []string          `yaml:"cap_add"`
+	SecurityOpt []string          `yaml:"security_opt"`
+	StopGrace   string            `yaml:"stop_grace_period"`
 	ExtraHosts  []string          `yaml:"extra_hosts"`
 	Profiles    []string          `yaml:"profiles"`
 	Ports       []string          `yaml:"ports"`
@@ -63,6 +65,10 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 		files.PortRelayTokenPath == "" {
 		t.Fatalf("files = %#v", files)
 	}
+	if filepath.Dir(files.PortConfigPath) != filepath.Dir(files.PortRelayTokenPath) ||
+		filepath.Base(filepath.Dir(files.PortConfigPath)) != "ports" {
+		t.Fatalf("port runtime files are not isolated in one directory: %#v", files)
+	}
 	tokenInfo, err := os.Stat(files.PortRelayTokenPath)
 	if err != nil {
 		t.Fatal(err)
@@ -82,12 +88,15 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	}
 	if body := readFile(t, files.SandboxEnvPath); !strings.Contains(
 		body,
-		`PORT_CONFIG_PATH="`,
+		`PORT_RUNTIME_PATH="`,
 	) {
 		t.Fatalf("sandbox env:\n%s", body)
 	}
 
 	document := readCompose(t, files.ComposePath)
+	if dockerService := document.Services["docker"]; dockerService.StopGrace != "30s" {
+		t.Fatalf("docker stop grace period = %q", dockerService.StopGrace)
+	}
 	portbridge := document.Services["portbridge"]
 	if !reflect.DeepEqual(portbridge.Profiles, []string{"ports"}) ||
 		!reflect.DeepEqual(
@@ -98,11 +107,15 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	}
 	loopbackService := document.Services["loopback"]
 	if loopbackService.PID != "service:docker" ||
-		!reflect.DeepEqual(loopbackService.CapAdd, []string{"SYS_ADMIN"}) ||
 		!reflect.DeepEqual(
-			loopbackService.ExtraHosts,
-			[]string{"host.docker.internal:host-gateway"},
-		) {
+			loopbackService.CapAdd,
+			[]string{"SYS_ADMIN", "SYS_PTRACE"},
+		) ||
+		!reflect.DeepEqual(
+			loopbackService.SecurityOpt,
+			[]string{"apparmor=unconfined"},
+		) ||
+		len(loopbackService.ExtraHosts) != 0 {
 		t.Fatalf("loopback namespace access = %#v", loopbackService)
 	}
 	if strings.Contains(readFile(t, files.ComposePath), "/var/run/docker.sock") {
@@ -110,9 +123,11 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	}
 	body := readFile(t, files.ComposePath)
 	for _, required := range []string{
-		"${PORT_RELAY_TOKEN_PATH}",
+		"${PORT_RUNTIME_PATH}",
+		"target: /run/wktbox-ports",
 		"/run/wktbox-ports/relay.token",
 		"WKTBOX_RELAY_PORT",
+		"WKTBOX_RELAY_HOST: host-gateway",
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("compose missing %q:\n%s", required, body)

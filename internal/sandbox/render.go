@@ -51,9 +51,15 @@ func Render(directory string, spec Spec) (Files, error) {
 		ComposePath:        filepath.Join(directory, "compose.yml"),
 		SandboxEnvPath:     filepath.Join(directory, "sandbox.env"),
 		GatewayConfigPath:  filepath.Join(directory, "gateway.conf"),
-		PortConfigPath:     filepath.Join(directory, "ports.json"),
+		PortConfigPath:     filepath.Join(directory, "ports", "ports.json"),
 		PortOverridePath:   filepath.Join(directory, "ports.override.yml"),
-		PortRelayTokenPath: filepath.Join(directory, "port-relay.token"),
+		PortRelayTokenPath: filepath.Join(directory, "ports", "relay.token"),
+	}
+	if err := os.MkdirAll(filepath.Dir(files.PortConfigPath), 0o700); err != nil {
+		return Files{}, fmt.Errorf("create port runtime directory: %w", err)
+	}
+	if err := os.Chmod(filepath.Dir(files.PortConfigPath), 0o700); err != nil {
+		return Files{}, fmt.Errorf("protect port runtime directory: %w", err)
 	}
 	_, tokenStatErr := os.Stat(files.PortRelayTokenPath)
 	_, err := portforward.EnsureRelayToken(files.PortRelayTokenPath)
@@ -212,13 +218,9 @@ func renderSandboxEnv(spec Spec, gatewayConfigPath string) []byte {
 		"WKTBOX_WEBTOP_IMAGE":  spec.Config.Runtime.WebtopImage,
 		"WORKTREE_PATH":        spec.Worktree,
 	}
-	values["PORT_CONFIG_PATH"] = filepath.Join(
+	values["PORT_RUNTIME_PATH"] = filepath.Join(
 		filepath.Dir(gatewayConfigPath),
-		"ports.json",
-	)
-	values["PORT_RELAY_TOKEN_PATH"] = filepath.Join(
-		filepath.Dir(gatewayConfigPath),
-		"port-relay.token",
+		"ports",
 	)
 	keys := make([]string, 0, len(values))
 	for key := range values {

@@ -126,6 +126,33 @@ func TestStartUsesPortableUpWait(t *testing.T) {
 	}
 }
 
+func TestRestartStopsThenStartsServicesInDependencyOrderAndWaits(t *testing.T) {
+	runner := &recordingRunner{}
+	if err := compose.NewClient(runner).Restart(
+		context.Background(),
+		testProject(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("calls = %#v", runner.calls)
+	}
+	if got := strings.Join(runner.calls[0], " "); !strings.HasSuffix(got, "stop") {
+		t.Fatalf("stop call = %s", got)
+	}
+	if got := strings.Join(runner.calls[1], " "); !strings.HasSuffix(
+		got,
+		"up -d --wait",
+	) {
+		t.Fatalf("readiness call = %s", got)
+	}
+	for _, call := range runner.calls {
+		if strings.Contains(strings.Join(call, " "), " restart") {
+			t.Fatalf("restart bypassed dependency ordering: %#v", runner.calls)
+		}
+	}
+}
+
 func TestInspectDerivesReadyFromDockerHealthAndRunnerState(t *testing.T) {
 	runner := &recordingRunner{results: []process.Result{{Stdout: `[
 		{"Name":"wktbox-a-docker-1","Service":"docker","State":"running","Health":"healthy"},

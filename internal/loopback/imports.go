@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"wktbox/internal/portforward"
@@ -15,6 +16,14 @@ type ImportApplyMode int
 const (
 	ImportApplyTransaction ImportApplyMode = iota
 	ImportApplyEvent
+)
+
+var ErrImportPortConflict = errors.New(
+	"workload localhost port is already in use",
+)
+
+var ErrImportWorkloadGone = errors.New(
+	"workload disappeared after Docker snapshot",
 )
 
 type ImportProxySpec struct {
@@ -46,18 +55,20 @@ type activeImport struct {
 }
 
 type ImportReconciler struct {
-	mutex   sync.Mutex
-	factory ImportProxyFactory
-	stopper ImportStopper
-	active  map[string]activeImport
-	desired []portforward.Mapping
+	mutex    sync.Mutex
+	factory  ImportProxyFactory
+	stopper  ImportStopper
+	active   map[string]activeImport
+	desired  []portforward.Mapping
+	warnings map[string]Warning
 }
 
 func NewImportReconciler(options ImportOptions) *ImportReconciler {
 	return &ImportReconciler{
-		factory: options.Factory,
-		stopper: options.Stopper,
-		active:  make(map[string]activeImport),
+		factory:  options.Factory,
+		stopper:  options.Stopper,
+		active:   make(map[string]activeImport),
+		warnings: make(map[string]Warning),
 	}
 }
 
@@ -78,7 +89,10 @@ func (reconciler *ImportReconciler) Preflight(
 			continue
 		}
 		if err := reconciler.factory.Probe(ctx, spec); err != nil {
-			return importConflict(spec, err)
+			if errors.Is(err, ErrImportWorkloadGone) {
+				continue
+			}
+			return importProbeError(spec, err)
 		}
 	}
 	return nil
@@ -96,17 +110,25 @@ func (reconciler *ImportReconciler) Apply(
 		return nil, errors.New("import proxy factory is required")
 	}
 	candidateMappings := portforward.Filter(mappings, portforward.Import)
+	reconciler.pruneWarnings(candidateMappings)
 	specs := importSpecs(containers, candidateMappings)
 	skippedContainers := make(map[string]bool)
-	warnings := make([]Warning, 0)
 
 	for _, spec := range specs {
 		key := importKey(spec)
 		if current, exists := reconciler.active[key]; exists &&
 			equalImportSpec(current.spec, spec) {
+			delete(reconciler.warnings, key)
 			continue
 		}
 		if err := reconciler.factory.Probe(ctx, spec); err != nil {
+			if errors.Is(err, ErrImportWorkloadGone) {
+				skippedContainers[spec.Container.ID] = true
+				continue
+			}
+			if !errors.Is(err, ErrImportPortConflict) {
+				return nil, importProbeError(spec, err)
+			}
 			if mode == ImportApplyTransaction {
 				return nil, importConflict(spec, err)
 			}
@@ -123,8 +145,10 @@ func (reconciler *ImportReconciler) Apply(
 				return nil, errors.Join(importConflict(spec, err), stopErr)
 			}
 			skippedContainers[spec.Container.ID] = true
-			warnings = append(warnings, importWarning(spec))
+			reconciler.warnings[key] = importWarning(spec)
+			continue
 		}
+		delete(reconciler.warnings, key)
 	}
 
 	started := make(map[string]activeImport)
@@ -171,7 +195,7 @@ func (reconciler *ImportReconciler) Apply(
 	}
 	reconciler.active = next
 	reconciler.desired = append([]portforward.Mapping(nil), candidateMappings...)
-	return warnings, nil
+	return reconciler.currentWarnings(), nil
 }
 
 func (reconciler *ImportReconciler) Desired() []portforward.Mapping {
@@ -188,7 +212,40 @@ func (reconciler *ImportReconciler) Close() error {
 		result = errors.Join(result, current.proxy.Close())
 	}
 	reconciler.active = make(map[string]activeImport)
+	reconciler.warnings = make(map[string]Warning)
 	return result
+}
+
+func (reconciler *ImportReconciler) pruneWarnings(
+	mappings []portforward.Mapping,
+) {
+	desiredNames := make(map[string]bool, len(mappings))
+	for _, mapping := range mappings {
+		desiredNames[mapping.Name] = true
+	}
+	for key := range reconciler.warnings {
+		separator := strings.LastIndexByte(key, '\x00')
+		if separator < 0 || !desiredNames[key[separator+1:]] {
+			delete(reconciler.warnings, key)
+		}
+	}
+}
+
+func (reconciler *ImportReconciler) currentWarnings() []Warning {
+	warnings := make([]Warning, 0, len(reconciler.warnings))
+	for _, warning := range reconciler.warnings {
+		warnings = append(warnings, warning)
+	}
+	sort.Slice(warnings, func(left int, right int) bool {
+		if warnings[left].Source != warnings[right].Source {
+			return warnings[left].Source < warnings[right].Source
+		}
+		if warnings[left].Port != warnings[right].Port {
+			return warnings[left].Port < warnings[right].Port
+		}
+		return warnings[left].Message < warnings[right].Message
+	})
+	return warnings
 }
 
 func importSpecs(
@@ -238,6 +295,19 @@ func importConflict(spec ImportProxySpec, cause error) error {
 		spec.Container.Name,
 		spec.Mapping.TargetPort,
 		spec.Mapping.Name,
+		cause,
+	)
+}
+
+func importProbeError(spec ImportProxySpec, cause error) error {
+	if errors.Is(cause, ErrImportPortConflict) {
+		return importConflict(spec, cause)
+	}
+	return fmt.Errorf(
+		"check localhost:%d for import %q on workload %s: %w",
+		spec.Mapping.TargetPort,
+		spec.Mapping.Name,
+		spec.Container.Name,
 		cause,
 	)
 }

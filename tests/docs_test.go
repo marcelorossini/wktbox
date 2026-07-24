@@ -19,6 +19,7 @@ var publicDocs = []string{
 	"docs/worktrees.md",
 	"docs/agents.md",
 	"docs/connections.md",
+	"docs/port-forwarding.md",
 	"docs/configuration.md",
 	"docs/release-verification.md",
 	"docs/security.md",
@@ -26,8 +27,54 @@ var publicDocs = []string{
 	"docs/windows.md",
 	"docs/pt-BR/configuration.md",
 	"docs/pt-BR/connections.md",
+	"docs/pt-BR/port-forwarding.md",
 	"docs/pt-BR/security.md",
 	"docs/pt-BR/windows.md",
+}
+
+func TestDocsExplainBidirectionalPortForwarding(t *testing.T) {
+	english := readProjectFile(t, "docs/port-forwarding.md")
+	portuguese := readProjectFile(t, "docs/pt-BR/port-forwarding.md")
+	for _, expected := range []string{
+		"wktbox port import",
+		"wktbox port publish",
+		"wktbox port list",
+		"wktbox port remove",
+		"localhost:1234",
+		"TCP only",
+		"127.0.0.1",
+		"multiple services",
+		"entire batch",
+		"stopped",
+		"restart",
+		"--json",
+	} {
+		if !strings.Contains(english, expected) {
+			t.Errorf("port-forwarding docs missing %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		"wktbox port import",
+		"wktbox port publish",
+		"localhost:1234",
+		"vários serviços",
+		"lote inteiro",
+		"container é parado",
+	} {
+		if !strings.Contains(portuguese, expected) {
+			t.Errorf("Portuguese port-forwarding docs missing %q", expected)
+		}
+	}
+	security := readProjectFile(t, "docs/security.md")
+	for _, expected := range []string{
+		"256-bit",
+		"host Docker socket",
+		"loopback",
+	} {
+		if !strings.Contains(security, expected) {
+			t.Errorf("security docs missing forwarding invariant %q", expected)
+		}
+	}
 }
 
 func TestDocsExplainCrossBoxConnectionsAndSecurityBoundary(t *testing.T) {

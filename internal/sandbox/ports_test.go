@@ -361,8 +361,11 @@ func newPortManagerFixture(t *testing.T) portManagerFixture {
 	store := state.NewStore(root)
 	record := existingRecord(t, store, state.Ready)
 	directory := filepath.Dir(record.ComposePath)
-	record.PortConfigPath = filepath.Join(directory, "ports.json")
-	record.PortRelayTokenPath = filepath.Join(directory, "port-relay.token")
+	record.PortConfigPath = filepath.Join(directory, "ports", "ports.json")
+	record.PortRelayTokenPath = filepath.Join(directory, "ports", "relay.token")
+	if err := os.MkdirAll(filepath.Dir(record.PortConfigPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	config, err := portforward.RenderConfig(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -407,7 +410,7 @@ func newPortManagerFixture(t *testing.T) portManagerFixture {
 }
 
 func portFixtureOverridePath(record state.BoxRecord) string {
-	return filepath.Join(filepath.Dir(record.PortConfigPath), "ports.override.yml")
+	return filepath.Join(filepath.Dir(record.ComposePath), "ports.override.yml")
 }
 
 func testImportMapping(name string, source uint16, target uint16) portforward.Mapping {

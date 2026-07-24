@@ -145,7 +145,10 @@ func (client Client) Stop(ctx context.Context, project Project) error {
 }
 
 func (client Client) Restart(ctx context.Context, project Project) error {
-	_, err := client.run(ctx, project, "restart")
+	if _, err := client.run(ctx, project, "stop"); err != nil {
+		return err
+	}
+	_, err := client.run(ctx, project, "up", "-d", "--wait")
 	return err
 }
 

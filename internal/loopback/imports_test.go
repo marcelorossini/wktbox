@@ -15,7 +15,10 @@ import (
 func TestImportPreflightRejectsOneConflictWithoutStartingAnyProxy(t *testing.T) {
 	factory := &fakeImportFactory{
 		conflicts: map[string]error{
-			"api/postgres": errors.New("address already in use"),
+			"api/postgres": fmt.Errorf(
+				"%w: address already in use",
+				loopback.ErrImportPortConflict,
+			),
 		},
 	}
 	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
@@ -36,6 +39,67 @@ func TestImportPreflightRejectsOneConflictWithoutStartingAnyProxy(t *testing.T) 
 	}
 	if len(factory.started) != 0 {
 		t.Fatalf("started = %#v", factory.started)
+	}
+}
+
+func TestImportProbeInfrastructureFailureDoesNotStopWorkloadOrReportConflict(
+	t *testing.T,
+) {
+	factory := &fakeImportFactory{
+		conflicts: map[string]error{
+			"api/postgres": errors.New("open network namespace: permission denied"),
+		},
+	}
+	stopper := &fakeImportStopper{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: factory,
+		Stopper: stopper,
+	})
+	_, err := reconciler.Apply(
+		context.Background(),
+		[]loopback.Container{{
+			ID: "a", Name: "api", PID: 42, Running: true,
+		}},
+		[]portforward.Mapping{importMapping("postgres", 5432)},
+		loopback.ImportApplyEvent,
+	)
+	if err == nil ||
+		!strings.Contains(err.Error(), "permission denied") ||
+		strings.Contains(err.Error(), "already uses") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(stopper.stopped) != 0 {
+		t.Fatalf("stopped = %#v", stopper.stopped)
+	}
+}
+
+func TestImportProbeSkipsWorkloadThatDisappearsAfterSnapshot(t *testing.T) {
+	factory := &fakeImportFactory{
+		conflicts: map[string]error{
+			"api/postgres": fmt.Errorf(
+				"%w: network namespace no longer exists",
+				loopback.ErrImportWorkloadGone,
+			),
+		},
+	}
+	stopper := &fakeImportStopper{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: factory,
+		Stopper: stopper,
+	})
+	_, err := reconciler.Apply(
+		context.Background(),
+		[]loopback.Container{{
+			ID: "a", Name: "api", PID: 42, Running: true,
+		}},
+		[]portforward.Mapping{importMapping("postgres", 5432)},
+		loopback.ImportApplyEvent,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(factory.started) != 0 || len(stopper.stopped) != 0 {
+		t.Fatalf("factory=%#v stopped=%#v", factory, stopper.stopped)
 	}
 }
 
@@ -89,7 +153,10 @@ func TestFutureConflictStopsWorkloadAndKeepsDesiredImport(t *testing.T) {
 		t.Fatal(err)
 	}
 	factory.conflicts = map[string]error{
-		"late/host-api": errors.New("address already in use"),
+		"late/host-api": fmt.Errorf(
+			"%w: address already in use",
+			loopback.ErrImportPortConflict,
+		),
 	}
 
 	warnings, err := reconciler.Apply(
@@ -114,6 +181,32 @@ func TestFutureConflictStopsWorkloadAndKeepsDesiredImport(t *testing.T) {
 	}
 	if got := reconciler.Desired(); len(got) != 1 || got[0].Name != "host-api" {
 		t.Fatalf("desired = %#v", got)
+	}
+
+	warnings, err = reconciler.Apply(
+		context.Background(),
+		nil,
+		[]portforward.Mapping{mapping},
+		loopback.ImportApplyEvent,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || warnings[0].Code != "port_import_conflict" {
+		t.Fatalf("conflict warning was not retained: %#v", warnings)
+	}
+
+	warnings, err = reconciler.Apply(
+		context.Background(),
+		nil,
+		nil,
+		loopback.ImportApplyEvent,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("removed import retained warnings: %#v", warnings)
 	}
 }
 

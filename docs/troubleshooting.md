@@ -84,6 +84,38 @@ wktbox doctor
 Reconcile with `wktbox up`, or use `wktbox run -- <command>`. `wktbox exec`
 intentionally fails when the box is not already ready.
 
+## `wktbox port import` reports a workload conflict
+
+The named workload already owns one requested `localhost` port. Wktbox rejects
+the entire batch before changing mappings:
+
+```bash
+wktbox status
+wktbox --json port list
+wktbox exec -- docker ps
+```
+
+Change the workload listener or choose a remapped container port, for example
+`--map api=127.0.0.1:1234:4321`. If a new workload starts after an import was
+created and claims a reserved port, Wktbox stops that workload and reports
+`port_import_conflict`; remove the mapping or change the workload before
+starting it again.
+
+## `wktbox port publish` reports a host bind conflict
+
+Another host process or box owns the requested `127.0.0.1`/`::1` listener.
+Choose a free host port or stop the owning process. The failed batch does not
+leave partial publications:
+
+```bash
+wktbox port list
+wktbox port publish --map api=127.0.0.1:18001:8000
+```
+
+The final number is the box's DinD-published port, not necessarily the
+workload's internal port. See
+[Bidirectional port forwarding](port-forwarding.md).
+
 ## A cross-box alias does not resolve
 
 Inspect the desired and observed topology:

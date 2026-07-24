@@ -11,6 +11,7 @@ services:
         test -n "$$dns_address";
         exec /usr/local/bin/dockerd-entrypoint.sh --dns="$$dns_address"
     privileged: true
+    stop_grace_period: 30s
     environment:
       DOCKER_TLS_CERTDIR: /certs
     labels:
@@ -99,8 +100,9 @@ services:
     pid: service:docker
     cap_add:
       - SYS_ADMIN
-    extra_hosts:
-      - host.docker.internal:host-gateway
+      - SYS_PTRACE
+    security_opt:
+      - apparmor=unconfined
     depends_on:
       docker:
         condition: service_healthy
@@ -111,7 +113,7 @@ services:
       DOCKER_TLS_VERIFY: "1"
       DOCKER_CERT_PATH: /certs/client
       WKTBOX_PORT_CONFIG: /run/wktbox-ports/ports.json
-      WKTBOX_RELAY_HOST: host.docker.internal
+      WKTBOX_RELAY_HOST: host-gateway
       WKTBOX_RELAY_PORT: ${PORT_IMPORT_RELAY}
       WKTBOX_RELAY_TOKEN: /run/wktbox-ports/relay.token
     labels:
@@ -122,12 +124,8 @@ services:
     volumes:
       - docker-certs:/certs:ro
       - type: bind
-        source: ${PORT_CONFIG_PATH}
-        target: /run/wktbox-ports/ports.json
-        read_only: true
-      - type: bind
-        source: ${PORT_RELAY_TOKEN_PATH}
-        target: /run/wktbox-ports/relay.token
+        source: ${PORT_RUNTIME_PATH}
+        target: /run/wktbox-ports
         read_only: true
     healthcheck:
       test:
@@ -157,8 +155,8 @@ services:
     volumes:
       - docker-certs:/certs:ro
       - type: bind
-        source: ${PORT_CONFIG_PATH}
-        target: /run/wktbox-ports/ports.json
+        source: ${PORT_RUNTIME_PATH}
+        target: /run/wktbox-ports
         read_only: true
 
   gateway:

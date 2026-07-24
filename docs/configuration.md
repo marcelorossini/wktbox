@@ -121,6 +121,12 @@ Cross-box connections also require no configuration section. They are explicit
 persistent resources managed with `wktbox connect`, `wktbox connections`, and
 `wktbox disconnect`; see [Cross-box connections](connections.md).
 
+Bidirectional host/container forwarding also has no YAML section. Persistent
+mappings are managed explicitly with `wktbox port import`,
+`wktbox port publish`, `wktbox port list`, and `wktbox port remove`. Imports
+preserve real-host services as workload `localhost`; publications bind only
+real-host loopback. See [Bidirectional port forwarding](port-forwarding.md).
+
 ## Environment variables and flags
 
 | Variable | Effect |

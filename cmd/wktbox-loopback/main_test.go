@@ -6,12 +6,64 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 
 	"wktbox/internal/loopback"
 	"wktbox/internal/portforward"
 )
+
+func TestResolveRelayIPv4UsesDockerHostNameWhenAvailable(t *testing.T) {
+	got, err := resolveRelayIPv4(
+		"host-gateway",
+		func(host string) ([]string, error) {
+			if host != "host.docker.internal" {
+				t.Fatalf("lookup host = %q", host)
+			}
+			return []string{"2001:db8::1", "192.0.2.10"}, nil
+		},
+		strings.NewReader(""),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "192.0.2.10" {
+		t.Fatalf("relay IPv4 = %q", got)
+	}
+}
+
+func TestResolveRelayIPv4FallsBackToLinuxDefaultGateway(t *testing.T) {
+	route := strings.NewReader(`Iface	Destination	Gateway	Flags	RefCnt	Use	Metric	Mask
+eth0	00000000	010011AC	0003	0	0	0	00000000
+`)
+	got, err := resolveRelayIPv4(
+		"host-gateway",
+		func(string) ([]string, error) {
+			return nil, &net.DNSError{Err: "not found"}
+		},
+		route,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "172.17.0.1" {
+		t.Fatalf("relay IPv4 = %q", got)
+	}
+}
+
+func TestResolveRelayIPv4RejectsMissingIPv4(t *testing.T) {
+	_, err := resolveRelayIPv4(
+		"relay.example",
+		func(host string) ([]string, error) {
+			return []string{"2001:db8::1"}, nil
+		},
+		strings.NewReader(""),
+	)
+	if err == nil || !strings.Contains(err.Error(), "has no IPv4 address") {
+		t.Fatalf("error = %v", err)
+	}
+}
 
 func TestStatusJSONPrintsStatusAndSucceedsWhenConnected(t *testing.T) {
 	var stdout bytes.Buffer

@@ -214,15 +214,17 @@ Add this service to `assets/sandbox.compose.yml`:
     volumes:
       - docker-certs:/certs:ro
       - type: bind
-        source: ${PORT_CONFIG_PATH}
-        target: /run/wktbox-ports/ports.json
+        source: ${PORT_RUNTIME_PATH}
+        target: /run/wktbox-ports
         read_only: true
 ```
 
 Mount the same config into `loopback`, add `pid: service:docker`,
-`cap_add: [SYS_ADMIN]`, and `extra_hosts:
-["host.docker.internal:host-gateway"]`. Update security render tests to prove
-the host Docker socket remains absent.
+`cap_add: [SYS_ADMIN, SYS_PTRACE]`, and the sidecar-specific
+`security_opt: [apparmor=unconfined]` required for `setns`. Resolve
+`host.docker.internal` when present and fall back to the Linux default gateway;
+`extra_hosts` cannot be combined with `network_mode: service:webtop`. Update
+security render tests to prove the host Docker socket remains absent.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 

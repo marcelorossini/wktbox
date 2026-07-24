@@ -7,6 +7,7 @@ RUN go mod download
 
 COPY internal/interconnect ./internal/interconnect
 COPY internal/loopback ./internal/loopback
+COPY internal/portforward ./internal/portforward
 COPY cmd/wktbox-loopback ./cmd/wktbox-loopback
 
 RUN CGO_ENABLED=0 go build \

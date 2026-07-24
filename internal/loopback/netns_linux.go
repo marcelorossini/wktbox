@@ -34,6 +34,14 @@ func listenNamespaceLoopback(
 	defer original.Close()
 	target, err := os.Open(fmt.Sprintf("/proc/%d/ns/net", pid))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf(
+				"%w: open workload network namespace for PID %d: %v",
+				ErrImportWorkloadGone,
+				pid,
+				err,
+			)
+		}
 		return nil, fmt.Errorf("open workload network namespace for PID %d: %w", pid, err)
 	}
 	defer target.Close()
@@ -75,6 +83,15 @@ func listenNamespaceLoopback(
 		)
 		if err != nil {
 			closeListeners(listeners)
+			if errors.Is(err, unix.EADDRINUSE) {
+				return nil, fmt.Errorf(
+					"%w: bind workload localhost:%d in PID %d: %v",
+					ErrImportPortConflict,
+					port,
+					pid,
+					err,
+				)
+			}
 			return nil, fmt.Errorf(
 				"bind workload localhost:%d in PID %d: %w",
 				port,

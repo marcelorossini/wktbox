@@ -20,6 +20,9 @@ uma fronteira para executar código hostil.
 - arquivos externos gerados usam diretório `0700` e arquivos `0600`;
 - o estado guarda caminhos e metadados, não o conteúdo do project env;
 - argumentos `--env` são redigidos em diagnósticos estruturados.
+- publicações explícitas escutam somente no loopback do host;
+- importações usam um relay autenticado por token aleatório de 256 bits, nunca
+  exibido na saída humana ou JSON.
 
 ## Limites e riscos
 
@@ -47,6 +50,24 @@ TLS protege a API DinD contra acesso acidental fora dos containers da box. Nem
 o Webtop nem o sidecar montam `/var/run/docker.sock` do host. Isso não
 transforma um container privilegiado em VM. Limites declarados em `resources`
 ainda não são aplicados no schema v1.
+
+### Encaminhamento explícito
+
+`wktbox port publish` torna deliberadamente uma porta da box acessível a
+processos locais pelas interfaces `127.0.0.1` ou `::1`; ele não adiciona
+autenticação à aplicação.
+
+`wktbox port import` usa um relay nativo no host porque o loopback do container
+não alcança diretamente o loopback do host real. O relay rejeita pedidos sem o
+token de 256 bits antes de abrir o serviço de destino. O sidecar recebe
+`SYS_ADMIN` para executar `setns` e `SYS_PTRACE` para acessar os handles de
+namespace dos workloads. Em hosts com AppArmor, ele também usa
+`apparmor=unconfined`, pois o perfil padrão do Docker bloqueia a entrada entre
+containers. Essas permissões ficam restritas ao sidecar confiável, mas ampliam
+materialmente sua autoridade dentro da box. O host Docker socket continua
+ausente, e o token não é montado nos workloads. Essa é uma ampliação
+operacional para código de desenvolvimento confiável, não uma fronteira contra
+código hostil.
 
 ### Boxes conectadas
 

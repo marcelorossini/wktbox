@@ -128,6 +128,35 @@ outros membros usam `http://dfe31c662a91.wktbox:8000`. A definição sobrevive a
 `wktbox disconnect dev-stack`. Veja
 [Conexões entre boxes](docs/pt-BR/connections.md).
 
+## Encaminhar portas entre host e containers
+
+`localhost` dentro do container normalmente aponta para o próprio container.
+Para trazer serviços do host real preservando localhost:
+
+```bash
+wktbox port import 1234 5432
+
+wktbox port import \
+  --map redis=127.0.0.1:6379:16379
+```
+
+O primeiro comando disponibiliza as portas `1234` e `5432` do host nos mesmos
+`localhost` de todos os workloads. O segundo remapeia host `6379` para
+`localhost:16379` dentro dos containers.
+
+O sentido contrário usa outro comando:
+
+```bash
+wktbox port publish \
+  --map frontend=127.0.0.1:15173:5173 \
+  --map api=127.0.0.1:18000:8000
+```
+
+As duas publicações são aplicadas no mesmo lote e escutam somente no loopback
+do host. Se qualquer porta solicitada já estiver ocupada no host ou em um
+workload existente, o lote inteiro falha sem alteração parcial. Consulte
+[Encaminhamento bidirecional de portas](docs/pt-BR/port-forwarding.md).
+
 ## Comandos
 
 - `wktbox up`: cria, inicia ou reconcilia a infraestrutura externa.
@@ -142,6 +171,9 @@ outros membros usam `http://dfe31c662a91.wktbox:8000`. A definição sobrevive a
 - `wktbox connect <box> <box> [mais...]`: conecta boxes prontas.
 - `wktbox connections [conexão]`: mostra a topologia e os aliases.
 - `wktbox disconnect <conexão>`: remove uma conexão sem destruir as boxes.
+- `wktbox port import`: traz serviços do host para o localhost dos workloads.
+- `wktbox port publish`: publica portas selecionadas da box no loopback do host.
+- `wktbox port list` e `wktbox port remove`: consultam ou removem mapeamentos.
 - `wktbox logs [serviço]`: mostra logs do Compose externo; aceita `--follow`.
 - `wktbox stop`: para a box preservando volumes, imagens e dados internos.
 - `wktbox restart`: reinicia a infraestrutura externa e valida a prontidão.

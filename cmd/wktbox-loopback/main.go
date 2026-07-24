@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -305,20 +308,20 @@ func importRuntimeFromEnv() (
 			"WKTBOX_PORT_CONFIG, WKTBOX_RELAY_TOKEN, WKTBOX_RELAY_HOST, and WKTBOX_RELAY_PORT are required",
 		)
 	}
-	addresses, err := net.LookupHost(relayHost)
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolve host relay %s: %w", relayHost, err)
-	}
-	relayAddress := ""
-	for _, address := range addresses {
-		if parsed := net.ParseIP(address); parsed != nil && parsed.To4() != nil {
-			relayAddress = net.JoinHostPort(address, relayPort)
-			break
+	var routeReader io.Reader
+	var routeFile *os.File
+	if relayHost == "host-gateway" {
+		routeFile, _ = os.Open("/proc/net/route")
+		if routeFile != nil {
+			defer routeFile.Close()
+			routeReader = routeFile
 		}
 	}
-	if relayAddress == "" {
-		return nil, nil, fmt.Errorf("host relay %s has no IPv4 address", relayHost)
+	relayIPv4, err := resolveRelayIPv4(relayHost, net.LookupHost, routeReader)
+	if err != nil {
+		return nil, nil, err
 	}
+	relayAddress := net.JoinHostPort(relayIPv4, relayPort)
 	factory, err := loopback.NewProcessImportFactory(loopback.ProcessImportOptions{
 		RelayAddress: relayAddress,
 		TokenPath:    tokenPath,
@@ -329,6 +332,76 @@ func importRuntimeFromEnv() (
 	return factory, func() ([]portforward.Mapping, error) {
 		return portforward.LoadConfig(configPath)
 	}, nil
+}
+
+func resolveRelayIPv4(
+	host string,
+	lookup func(string) ([]string, error),
+	linuxRoutes io.Reader,
+) (string, error) {
+	lookupHost := host
+	if host == "host-gateway" {
+		lookupHost = "host.docker.internal"
+	}
+	addresses, lookupErr := lookup(lookupHost)
+	for _, address := range addresses {
+		if parsed := net.ParseIP(address); parsed != nil && parsed.To4() != nil {
+			return parsed.String(), nil
+		}
+	}
+	if host != "host-gateway" {
+		if lookupErr != nil {
+			return "", fmt.Errorf("resolve host relay %s: %w", host, lookupErr)
+		}
+		return "", fmt.Errorf("host relay %s has no IPv4 address", host)
+	}
+
+	gateway, routeErr := linuxDefaultGateway(linuxRoutes)
+	if routeErr == nil {
+		return gateway, nil
+	}
+	if lookupErr != nil {
+		return "", fmt.Errorf(
+			"resolve host relay: host.docker.internal: %v; default gateway: %w",
+			lookupErr,
+			routeErr,
+		)
+	}
+	return "", fmt.Errorf(
+		"resolve host relay: host.docker.internal has no IPv4 address; default gateway: %w",
+		routeErr,
+	)
+}
+
+func linuxDefaultGateway(routes io.Reader) (string, error) {
+	if routes == nil {
+		return "", errors.New("/proc/net/route is unavailable")
+	}
+	scanner := bufio.NewScanner(routes)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 || fields[1] != "00000000" {
+			continue
+		}
+		flags, err := strconv.ParseUint(fields[3], 16, 32)
+		if err != nil || flags&0x3 != 0x3 {
+			continue
+		}
+		gateway, err := strconv.ParseUint(fields[2], 16, 32)
+		if err != nil || gateway == 0 {
+			continue
+		}
+		return net.IPv4(
+			byte(gateway),
+			byte(gateway>>8),
+			byte(gateway>>16),
+			byte(gateway>>24),
+		).String(), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("read /proc/net/route: %w", err)
+	}
+	return "", errors.New("IPv4 default gateway not found")
 }
 
 type persistentController struct {

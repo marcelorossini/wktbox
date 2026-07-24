@@ -24,6 +24,10 @@ treat Wktbox as a virtual machine, tenant boundary, or malware sandbox.
 - State contains paths and metadata, not project environment contents.
 - Process environment values supplied through `--env` are redacted from
   structured diagnostics.
+- Explicit host publications bind only to real-host loopback.
+- Host imports cross an authenticated relay with a random 256-bit token. The
+  token is mounted read-only only into the trusted loopback sidecar and is
+  never included in human or JSON output.
 
 These controls reduce accidental interference between trusted checkouts. They
 do not make privileged containers safe for adversarial code.
@@ -53,6 +57,26 @@ assigned loopback port may attempt to access them.
 
 Internal TLS protects the DinD API from accidental access outside the box
 containers. It does not transform a privileged container into a VM.
+
+### Explicit host/container forwarding
+
+`wktbox port publish` deliberately makes a selected box port available to any
+local process that can reach its `127.0.0.1` or `::1` listener. Wktbox adds no
+application authentication.
+
+`wktbox port import` runs a native host relay because container loopback cannot
+reach real-host loopback directly. The relay listens on a reserved box port but
+rejects requests without the per-box 256-bit token before opening a host
+target. Imported host services still receive traffic with the relay process's
+host identity and must enforce their own authentication.
+
+The loopback sidecar receives `SYS_ADMIN` for `setns` and `SYS_PTRACE` for
+accessing workload namespace handles. On AppArmor hosts it also runs with
+`apparmor=unconfined`, because Docker's default profile blocks cross-container
+namespace entry. These permissions are limited to the trusted loopback
+sidecar, but materially expand its authority inside the box. It does not mount
+the host Docker socket, and tokens are not mounted into workload containers.
+Treat workloads as trusted development code, not hostile tenants.
 
 ### Connecting boxes
 

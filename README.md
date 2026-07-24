@@ -133,6 +133,35 @@ prevents Wktbox from running itself inside nested DinD. Installation changes
 only the documented skill directory and one marked instruction block. See
 [Coding-agent integration](docs/agents.md).
 
+## Explicit host/container port forwarding
+
+Container `localhost` normally refers to that container, not the real host.
+Import a host service explicitly when workloads must keep using localhost:
+
+```bash
+wktbox port import 1234 5432
+
+wktbox port import \
+  --map redis=127.0.0.1:6379:16379
+```
+
+The first command makes real-host `127.0.0.1:1234` and `:5432` available at
+the same `localhost` ports in every workload container. The named example
+remaps host `6379` to workload `localhost:16379`.
+
+Use a different command for the opposite direction:
+
+```bash
+wktbox port publish \
+  --map frontend=127.0.0.1:15173:5173 \
+  --map api=127.0.0.1:18000:8000
+```
+
+This publishes box ports `5173` and `8000` on real-host loopback. Both
+directions are TCP-only, persistent, and transactional. If any requested host
+or existing workload port is busy, the whole batch fails without partial
+changes. See [Bidirectional port forwarding](docs/port-forwarding.md).
+
 ## Connect boxes explicitly
 
 Boxes remain isolated unless you connect them. To let workload containers in
@@ -163,6 +192,9 @@ and the trust boundary.
 - `wktbox connect <box> <box> [more...]` creates a persistent shared network.
 - `wktbox connections [connection]` shows connection topology and aliases.
 - `wktbox disconnect <connection>` removes one shared network.
+- `wktbox port import` exposes real-host services as workload localhost ports.
+- `wktbox port publish` exposes selected box ports on real-host loopback.
+- `wktbox port list` and `wktbox port remove` inspect or remove mappings.
 - `wktbox logs [service]` reads external box logs; `--follow` streams them.
 - `wktbox stop` stops a box while preserving its data.
 - `wktbox restart` restarts the external infrastructure.
@@ -190,6 +222,7 @@ Read the [security model](docs/security.md) before adopting it.
 - [Optional worktrees and lifecycle](docs/worktrees.md)
 - [Coding-agent integration](docs/agents.md)
 - [Cross-box connections](docs/connections.md)
+- [Bidirectional port forwarding](docs/port-forwarding.md)
 - [Configuration](docs/configuration.md)
 - [Windows and Docker Desktop](docs/windows.md)
 - [Security model](docs/security.md)

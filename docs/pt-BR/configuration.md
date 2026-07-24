@@ -154,3 +154,10 @@ env.
 
 O flag `--profile` existe para compatibilidade futura, mas qualquer valor
 nomeado é rejeitado explicitamente no schema v1.
+
+O encaminhamento bidirecional também não possui seção YAML. Os mapeamentos
+persistentes são administrados explicitamente com `wktbox port import`,
+`wktbox port publish`, `wktbox port list` e `wktbox port remove`. Importações
+preservam serviços do host como `localhost` dos workloads; publicações escutam
+somente no loopback do host. Consulte
+[Encaminhamento bidirecional de portas](port-forwarding.md).

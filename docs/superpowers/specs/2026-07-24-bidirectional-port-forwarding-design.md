@@ -185,9 +185,15 @@ bridges authenticated TCP streams to the host relay. The parent owns and
 terminates children when containers stop, mappings are removed, or the sidecar
 shuts down.
 
-The sidecar resolves the real-host gateway in its outer Docker namespace and
-passes a literal address to children. `host.docker.internal:host-gateway` is
-declared for Linux while Docker Desktop keeps its native resolution.
+The sidecar resolves `host.docker.internal` when Docker provides it and falls
+back to the IPv4 default gateway from `/proc/net/route` on native Linux. It
+passes the resulting literal address to children. This avoids the invalid
+combination of `extra_hosts` with `network_mode: service:webtop`.
+
+The mutable `ports.json` and stable relay token live in one protected host
+directory mounted read-only at `/run/wktbox-ports`. Mounting the directory,
+rather than the individual config file, makes atomic file replacement visible
+inside a running sidecar.
 
 ### Host-facing publication bridge
 

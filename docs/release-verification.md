@@ -93,3 +93,27 @@ Public runtime images must pull without repository credentials. Remove the
 temporary Docker configuration afterward.
 
 See [Installation](installation.md) for platform-specific checksum commands.
+
+## Port-forwarding release gate
+
+The native binary and Webtop image must come from the same revision. Verify the
+public command grammar:
+
+```bash
+wktbox port --help
+wktbox port import --help
+wktbox port publish --help
+wktbox port remove --help
+```
+
+The Webtop image must contain the matching private helper modes
+`publish-serve`, `imports-preflight`, `imports-apply`, and `import-proxy`.
+Run the repository's bidirectional Docker acceptance test before publishing:
+
+```bash
+bash tests/e2e/bidirectional_ports.sh
+```
+
+It proves host-to-workload localhost imports, box-to-host publications,
+multi-service batches, conflicts without residue, removal, and stop/restart
+persistence.

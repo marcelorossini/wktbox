@@ -6,6 +6,20 @@ All notable changes to Wktbox are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Added persistent `wktbox port import` mappings that expose real-host TCP
+  services as `localhost` in every workload container.
+- Added loopback-only `wktbox port publish` mappings from real-host ports to
+  selected DinD-published box ports.
+- Added atomic multi-service batches, conflict rejection, removal, lifecycle
+  restoration, human/JSON status, and an authenticated per-box host relay.
+
+### Security
+
+- Protected host imports with per-box random 256-bit relay tokens and kept the
+  host Docker socket and relay credentials out of workload containers.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added
