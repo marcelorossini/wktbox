@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action",
+    "use_wktbox",
+    "require_new_worktree",
+    "asked_clarification",
+    "doctor_before_init",
+    "host_fallback",
+    "pr_alone_triggers_cleanup",
+    "destroyed_current_checkout",
+    "destroyed_before_worktree_removal",
+    "self_host_guard",
+    "summary"
+  ],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["completed", "clarification", "stopped", "host"]
+    },
+    "use_wktbox": {"type": "boolean"},
+    "require_new_worktree": {"type": "boolean"},
+    "asked_clarification": {"type": "boolean"},
+    "doctor_before_init": {"type": "boolean"},
+    "host_fallback": {"type": "boolean"},
+    "pr_alone_triggers_cleanup": {"type": "boolean"},
+    "destroyed_current_checkout": {"type": "boolean"},
+    "destroyed_before_worktree_removal": {"type": "boolean"},
+    "self_host_guard": {"type": "boolean"},
+    "summary": {"type": "string"}
+  }
+}

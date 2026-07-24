@@ -354,6 +354,7 @@ func (probes *HostProbes) loadConfig(ctx context.Context) (config.Config, error)
 				EnvFile:    probes.input.EnvFile,
 				EnvTarget:  probes.input.EnvTarget,
 			},
+			"dev",
 		)
 	})
 	return probes.config, probes.configErr
@@ -366,7 +367,7 @@ func (probes *HostProbes) dindImage(ctx context.Context) string {
 	if cfg, err := probes.loadConfig(ctx); err == nil && cfg.Runtime.DindImage != "" {
 		return cfg.Runtime.DindImage
 	}
-	return config.Default().Runtime.DindImage
+	return config.Default("dev").Runtime.DindImage
 }
 
 func (probes *HostProbes) run(

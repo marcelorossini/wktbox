@@ -1,5 +1,7 @@
 package config
 
+import "regexp"
+
 type GitMode string
 
 const (
@@ -80,7 +82,17 @@ type Overrides struct {
 	EnvTarget  string
 }
 
-func Default() Config {
+var semanticVersionPattern = regexp.MustCompile(
+	`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`,
+)
+
+func Default(buildVersion string) Config {
+	webtopImage := "wktbox/webtop:dev"
+	gatewayImage := "wktbox/gateway:dev"
+	if semanticVersionPattern.MatchString(buildVersion) {
+		webtopImage = "ghcr.io/marcelorossini/wktbox/webtop:" + buildVersion
+		gatewayImage = "ghcr.io/marcelorossini/wktbox/gateway:" + buildVersion
+	}
 	return Config{
 		Version: 1,
 		Workspace: Workspace{
@@ -92,8 +104,8 @@ func Default() Config {
 		},
 		Runtime: Runtime{
 			DindImage:    "docker:29.5.0-dind",
-			WebtopImage:  "wktbox/webtop:dev",
-			GatewayImage: "wktbox/gateway:dev",
+			WebtopImage:  webtopImage,
+			GatewayImage: gatewayImage,
 		},
 		Webtop: Webtop{
 			Enabled: true,

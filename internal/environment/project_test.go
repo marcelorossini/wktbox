@@ -15,7 +15,7 @@ func TestResolveExternalProjectEnvAsReadOnlyMount(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "project.env")
 	writeEnv(t, source)
 
-	got, err := environment.Resolve(worktree, config.Default(), source, "")
+	got, err := environment.Resolve(worktree, config.Default("dev"), source, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestResolveUsesExistingWorktreeEnvWithoutAdditionalMount(t *testing.T) {
 	source := filepath.Join(worktree, ".env")
 	writeEnv(t, source)
 
-	got, err := environment.Resolve(worktree, config.Default(), "", "")
+	got, err := environment.Resolve(worktree, config.Default("dev"), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestResolveHonorsConfiguredRelativeFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeEnv(t, source)
-	cfg := config.Default()
+	cfg := config.Default("dev")
 	cfg.Environment.File = filepath.Join("env", "e2e.env")
 	cfg.Environment.Target = "/workspace/.env.e2e"
 
@@ -72,7 +72,12 @@ func TestResolveRejectsTargetOutsideAllowedRoots(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "project.env")
 	writeEnv(t, source)
 
-	_, err := environment.Resolve(worktree, config.Default(), source, "/etc/profile")
+	_, err := environment.Resolve(
+		worktree,
+		config.Default("dev"),
+		source,
+		"/etc/profile",
+	)
 	if !errors.Is(err, environment.ErrInvalidTarget) {
 		t.Fatalf("error = %v", err)
 	}
@@ -82,7 +87,7 @@ func TestResolveRejectsWritableConfiguration(t *testing.T) {
 	worktree := t.TempDir()
 	source := filepath.Join(t.TempDir(), "project.env")
 	writeEnv(t, source)
-	cfg := config.Default()
+	cfg := config.Default("dev")
 	cfg.Environment.ReadOnly = false
 
 	_, err := environment.Resolve(worktree, cfg, source, "")
@@ -96,7 +101,7 @@ func TestResolveRejectsMissingFile(t *testing.T) {
 
 	_, err := environment.Resolve(
 		worktree,
-		config.Default(),
+		config.Default("dev"),
 		filepath.Join(t.TempDir(), "missing.env"),
 		"",
 	)
@@ -106,7 +111,7 @@ func TestResolveRejectsMissingFile(t *testing.T) {
 }
 
 func TestResolveReturnsNoProjectEnvWhenNoneExists(t *testing.T) {
-	got, err := environment.Resolve(t.TempDir(), config.Default(), "", "")
+	got, err := environment.Resolve(t.TempDir(), config.Default("dev"), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 func TestDefaultMatchesMVPDecisions(t *testing.T) {
-	got := config.Default()
+	got := config.Default("dev")
 	if got.Version != 1 {
 		t.Fatalf("version = %d", got.Version)
 	}
@@ -25,6 +25,54 @@ func TestDefaultMatchesMVPDecisions(t *testing.T) {
 	}
 	if got.Git.Mode != config.GitHost {
 		t.Fatalf("git mode = %q", got.Git.Mode)
+	}
+}
+
+func TestDefaultUsesDevelopmentImagesForDevBuild(t *testing.T) {
+	got := config.Default("dev")
+	if got.Runtime.WebtopImage != "wktbox/webtop:dev" {
+		t.Fatalf("webtop image = %q", got.Runtime.WebtopImage)
+	}
+	if got.Runtime.GatewayImage != "wktbox/gateway:dev" {
+		t.Fatalf("gateway image = %q", got.Runtime.GatewayImage)
+	}
+}
+
+func TestDefaultUsesImmutableGHCRImagesForRelease(t *testing.T) {
+	got := config.Default("0.1.0")
+	if got.Runtime.WebtopImage !=
+		"ghcr.io/marcelorossini/wktbox/webtop:0.1.0" {
+		t.Fatalf("webtop image = %q", got.Runtime.WebtopImage)
+	}
+	if got.Runtime.GatewayImage !=
+		"ghcr.io/marcelorossini/wktbox/gateway:0.1.0" {
+		t.Fatalf("gateway image = %q", got.Runtime.GatewayImage)
+	}
+}
+
+func TestLoadPreservesExplicitRuntimeImageOverrides(t *testing.T) {
+	worktree := t.TempDir()
+	writeFile(t, filepath.Join(worktree, ".wktbox.yml"), `
+version: 1
+runtime:
+  webtopImage: registry.example/webtop:custom
+  gatewayImage: registry.example/gateway:custom
+`)
+
+	got, err := config.Load(
+		worktree,
+		map[string]string{},
+		config.Overrides{},
+		"0.1.0",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Runtime.WebtopImage != "registry.example/webtop:custom" {
+		t.Fatalf("webtop image = %q", got.Runtime.WebtopImage)
+	}
+	if got.Runtime.GatewayImage != "registry.example/gateway:custom" {
+		t.Fatalf("gateway image = %q", got.Runtime.GatewayImage)
 	}
 }
 
@@ -51,7 +99,7 @@ runtime:
 		"WKTBOX_ENV_TARGET": "/run/wktbox/from-env",
 	}, config.Overrides{
 		EnvFile: "from-flag.env",
-	})
+	}, "dev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +128,12 @@ environment:
   file: alternative.env
 `)
 
-	got, err := config.Load(worktree, nil, config.Overrides{ConfigPath: alternative})
+	got, err := config.Load(
+		worktree,
+		nil,
+		config.Overrides{ConfigPath: alternative},
+		"dev",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +150,7 @@ runtime:
   dockerSock: /var/run/docker.sock
 `)
 
-	_, err := config.Load(worktree, nil, config.Overrides{})
+	_, err := config.Load(worktree, nil, config.Overrides{}, "dev")
 	if err == nil || !strings.Contains(err.Error(), "dockerSock") {
 		t.Fatalf("error = %v", err)
 	}
@@ -107,7 +160,7 @@ func TestLoadRejectsUnsupportedVersion(t *testing.T) {
 	worktree := t.TempDir()
 	writeFile(t, filepath.Join(worktree, ".wktbox.yml"), "version: 2\n")
 
-	_, err := config.Load(worktree, nil, config.Overrides{})
+	_, err := config.Load(worktree, nil, config.Overrides{}, "dev")
 	if err == nil || !strings.Contains(err.Error(), "version 2") {
 		t.Fatalf("error = %v", err)
 	}
@@ -135,7 +188,7 @@ func TestLoadRejectsUnsupportedWebtopModes(t *testing.T) {
 			worktree := t.TempDir()
 			writeFile(t, filepath.Join(worktree, ".wktbox.yml"), test.body)
 
-			_, err := config.Load(worktree, nil, config.Overrides{})
+			_, err := config.Load(worktree, nil, config.Overrides{}, "dev")
 
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v", err)

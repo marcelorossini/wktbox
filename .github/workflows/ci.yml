@@ -5,37 +5,78 @@ on:
     branches: ["**"]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  test:
+  quality:
+    name: Go, archives, installers, skills, and docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
           cache: true
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
-      - name: Vet
-        run: go vet ./...
+      - name: Test
+        run: go test ./...
       - name: Test with race detector
         run: go test -race ./...
-      - name: Build release targets
-        run: ./scripts/build.sh ci
-      - name: Build runtime images
-        run: |
-          docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
-          docker build -t wktbox/gateway:dev images/gateway
+      - name: Vet
+        run: go vet ./...
+      - name: Build developer binary
+        run: go build -o bin/wktbox ./cmd/wktbox
+      - name: Test reproducible release archives
+        run: bash tests/release/build_test.sh
+      - name: Test Unix installer
+        run: bash tests/install/unix_test.sh
+      - name: Validate bundled agent skill
+        run: go test ./tests/agents ./internal/agentintegration -count=1
+      - name: Test agent scorer and harness
+        run: bash tests/agents/evaluate.sh self-test
+      - name: Validate documentation and local links
+        run: go test ./tests -run Docs -count=1
+
+  runtime-images:
+    name: Runtime images and OCI metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Build development images
+        run: make images
+      - name: Test OCI image labels
+        run: make images-test
       - name: Smoke runtime images
         run: |
           docker run --rm --entrypoint docker wktbox/webtop:dev --version
           docker run --rm --entrypoint docker wktbox/webtop:dev compose version
           docker run --rm wktbox/webtop:dev wktbox-loopback --help
           docker run --rm wktbox/gateway:dev nginx -t
-      - name: Run automatic-loopback E2E
+
+  e2e:
+    name: Docker isolation E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Run all 13 automatic-loopback scenarios
         run: bash tests/e2e/automatic_loopback.sh
-      - name: Run two-worktree E2E
+      - name: Run two-worktree isolation E2E
         run: bash tests/e2e/two_worktrees.sh
+
+  windows-installer:
+    name: PowerShell installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
+      - name: Test PowerShell installer
+        shell: pwsh
+        run: Invoke-Pester tests/install/windows.Tests.ps1 -CI

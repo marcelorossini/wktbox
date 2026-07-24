@@ -2,8 +2,10 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
+	"wktbox/internal/prune"
 	"wktbox/internal/sandbox"
 	"wktbox/internal/state"
 )
@@ -25,6 +28,9 @@ type fakeManager struct {
 	touched     []string
 	loopback    loopback.Status
 	syncIDs     []string
+	boxes       []state.BoxRecord
+	destroyed   []string
+	destroyErr  map[string]error
 }
 
 func (manager *fakeManager) EnsureAllocated(
@@ -54,6 +60,9 @@ func (manager *fakeManager) Inspect(context.Context, string) (state.BoxRecord, e
 }
 
 func (manager *fakeManager) List(context.Context) ([]state.BoxRecord, error) {
+	if manager.boxes != nil {
+		return manager.boxes, nil
+	}
 	return []state.BoxRecord{manager.box}, nil
 }
 
@@ -65,8 +74,9 @@ func (manager *fakeManager) Restart(context.Context, string) error {
 	return nil
 }
 
-func (manager *fakeManager) Destroy(context.Context, string) error {
-	return nil
+func (manager *fakeManager) Destroy(_ context.Context, id string) error {
+	manager.destroyed = append(manager.destroyed, id)
+	return manager.destroyErr[id]
 }
 
 func (manager *fakeManager) Touch(_ context.Context, id string) error {
@@ -168,6 +178,40 @@ func TestResolveAndEnsureBuildSandboxSpecFromWorktree(t *testing.T) {
 	}
 }
 
+func TestResolveUsesReleaseVersionForRuntimeImages(t *testing.T) {
+	worktree := t.TempDir()
+	service := app.New(app.Options{
+		ProcessRunner:     discoveryRunner{worktree: worktree},
+		Manager:           &fakeManager{},
+		InteractiveRunner: &interactiveRunner{},
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+		Version:           "0.1.0",
+	})
+
+	resolution, err := service.Resolve(
+		context.Background(),
+		app.Request{Path: worktree},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Spec.Config.Runtime.WebtopImage !=
+		"ghcr.io/marcelorossini/wktbox/webtop:0.1.0" {
+		t.Fatalf(
+			"webtop image = %q",
+			resolution.Spec.Config.Runtime.WebtopImage,
+		)
+	}
+	if resolution.Spec.Config.Runtime.GatewayImage !=
+		"ghcr.io/marcelorossini/wktbox/gateway:0.1.0" {
+		t.Fatalf(
+			"gateway image = %q",
+			resolution.Spec.Config.Runtime.GatewayImage,
+		)
+	}
+}
+
 func TestRunUsesExecutorAndTouchesBoxAfterChildExit(t *testing.T) {
 	manager := &fakeManager{}
 	interactive := &interactiveRunner{code: 17}
@@ -223,6 +267,101 @@ func TestSyncLoopbackDelegatesToManager(t *testing.T) {
 	if !reflect.DeepEqual(got, want) ||
 		!reflect.DeepEqual(manager.syncIDs, []string{box.ID}) {
 		t.Fatalf("status=%#v sync IDs=%#v", got, manager.syncIDs)
+	}
+}
+
+func TestPruneDryRunDiscoversMissingWorktreesWithoutDestroying(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "removed")
+	manager := &fakeManager{boxes: []state.BoxRecord{{
+		ID:       "aaaaaaaaaaaa",
+		Name:     "removed",
+		Worktree: missing,
+	}}}
+	service := app.New(app.Options{Manager: manager})
+
+	report, err := service.Prune(context.Background(), false)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []prune.Candidate{{
+		ID:       "aaaaaaaaaaaa",
+		Name:     "removed",
+		Worktree: missing,
+	}}
+	if !reflect.DeepEqual(report.Candidates, want) {
+		t.Fatalf("candidates = %#v, want %#v", report.Candidates, want)
+	}
+	if len(report.Destroyed) != 0 {
+		t.Fatalf("destroyed report = %#v", report.Destroyed)
+	}
+	if len(manager.destroyed) != 0 {
+		t.Fatalf("destroy calls = %#v", manager.destroyed)
+	}
+}
+
+func TestPruneForceDestroysOnlyMissingWorktrees(t *testing.T) {
+	existing := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "removed")
+	manager := &fakeManager{boxes: []state.BoxRecord{
+		{ID: "bbbbbbbbbbbb", Name: "existing", Worktree: existing},
+		{ID: "aaaaaaaaaaaa", Name: "removed", Worktree: missing},
+	}}
+	service := app.New(app.Options{Manager: manager})
+
+	report, err := service.Prune(context.Background(), true)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(manager.destroyed, []string{"aaaaaaaaaaaa"}) {
+		t.Fatalf("destroy calls = %#v", manager.destroyed)
+	}
+	if !reflect.DeepEqual(report.Destroyed, report.Candidates) {
+		t.Fatalf(
+			"destroyed = %#v, candidates = %#v",
+			report.Destroyed,
+			report.Candidates,
+		)
+	}
+}
+
+func TestPruneReturnsPartialReportWhenDestroyFails(t *testing.T) {
+	manager := &fakeManager{
+		boxes: []state.BoxRecord{
+			{
+				ID:       "bbbbbbbbbbbb",
+				Name:     "second",
+				Worktree: filepath.Join(t.TempDir(), "second"),
+			},
+			{
+				ID:       "aaaaaaaaaaaa",
+				Name:     "first",
+				Worktree: filepath.Join(t.TempDir(), "first"),
+			},
+		},
+		destroyErr: map[string]error{
+			"bbbbbbbbbbbb": errors.New("compose down failed"),
+		},
+	}
+	service := app.New(app.Options{Manager: manager})
+
+	report, err := service.Prune(context.Background(), true)
+
+	if err == nil ||
+		!strings.Contains(err.Error(), "bbbbbbbbbbbb") ||
+		!strings.Contains(err.Error(), "compose down failed") {
+		t.Fatalf("error = %v", err)
+	}
+	if !reflect.DeepEqual(manager.destroyed, []string{
+		"aaaaaaaaaaaa",
+		"bbbbbbbbbbbb",
+	}) {
+		t.Fatalf("destroy calls = %#v", manager.destroyed)
+	}
+	if len(report.Destroyed) != 1 ||
+		report.Destroyed[0].ID != "aaaaaaaaaaaa" {
+		t.Fatalf("partial report = %#v", report)
 	}
 }
 

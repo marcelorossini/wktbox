@@ -18,6 +18,10 @@ FROM docker:29.5.0-cli AS docker-cli
 
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG SOURCE_URL=https://github.com/marcelorossini/wktbox
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       bash \
@@ -42,4 +46,8 @@ WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/wktbox-entrypoint"]
 
 LABEL org.opencontainers.image.title="Wktbox Webtop" \
-      org.opencontainers.image.description="Browser desktop and CLI runner for an isolated Wktbox DinD daemon"
+      org.opencontainers.image.description="Browser desktop and CLI runner for an isolated Wktbox DinD daemon" \
+      org.opencontainers.image.source=$SOURCE_URL \
+      org.opencontainers.image.revision=$REVISION \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.licenses=Apache-2.0

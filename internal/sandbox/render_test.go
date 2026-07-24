@@ -306,7 +306,7 @@ func testSpec() sandbox.Spec {
 		Version:  "dev",
 		Worktree: "/repo tree/feature",
 		Ports:    ports.Block{Start: 23000, Size: 10},
-		Config:   config.Default(),
+		Config:   config.Default("dev"),
 		Timezone: "America/Sao_Paulo",
 		PUID:     1000,
 		PGID:     1000,

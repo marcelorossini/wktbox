@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"wktbox/internal/agentintegration"
 	"wktbox/internal/loopback"
+	"wktbox/internal/prune"
 	"wktbox/internal/state"
 )
 
@@ -150,6 +152,135 @@ func (renderer Renderer) LoopbackSummary(status loopback.Status) error {
 	}
 	_, err := fmt.Fprint(renderer.err, humanLoopback(status, true))
 	return err
+}
+
+func (renderer Renderer) AgentReport(report agentintegration.Report) error {
+	if renderer.json {
+		return writeJSON(renderer.out, report)
+	}
+	if renderer.quiet {
+		return nil
+	}
+	for index, status := range report.Targets {
+		if index > 0 {
+			if _, err := fmt.Fprintln(renderer.out); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprint(renderer.out, humanAgentStatus(status)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (renderer Renderer) PruneReport(report prune.Report, force bool) error {
+	if renderer.json {
+		return writeJSON(renderer.out, report)
+	}
+	if renderer.quiet {
+		return nil
+	}
+	if force {
+		if len(report.Destroyed) == 0 {
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"No stale boxes destroyed.",
+			); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintln(renderer.out, "Destroyed stale boxes:"); err != nil {
+				return err
+			}
+			if err := writeCandidates(renderer.out, report.Destroyed); err != nil {
+				return err
+			}
+		}
+	} else {
+		if len(report.Candidates) == 0 {
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"No stale boxes found.",
+			); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"Stale boxes found (dry run):",
+			); err != nil {
+				return err
+			}
+			if err := writeCandidates(renderer.out, report.Candidates); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"Run \"wktbox prune --force\" to destroy only these boxes.",
+			); err != nil {
+				return err
+			}
+		}
+	}
+	for _, warning := range report.Warnings {
+		if _, err := fmt.Fprintf(
+			renderer.out,
+			"warning: box %s path %q: %s\n",
+			warning.ID,
+			warning.Path,
+			warning.Message,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCandidates(destination io.Writer, candidates []prune.Candidate) error {
+	for _, candidate := range candidates {
+		name := candidate.Name
+		if name == "" {
+			name = candidate.ID
+		}
+		if _, err := fmt.Fprintf(
+			destination,
+			"  - %s (%s): %s\n",
+			name,
+			candidate.ID,
+			candidate.Worktree,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func humanAgentStatus(status agentintegration.TargetStatus) string {
+	var result strings.Builder
+	state := "not installed"
+	if status.Installed {
+		state = "installed"
+	}
+	fmt.Fprintf(&result, "Agent %s: %s\n", status.Target, state)
+	if status.Version != "" {
+		fmt.Fprintf(&result, "Version:      %s\n", status.Version)
+	}
+	fmt.Fprintf(&result, "Skill:        %s\n", status.SkillPath)
+	fmt.Fprintf(&result, "Instructions: %s\n", status.InstructionsPath)
+	fmt.Fprintf(&result, "Managed block: %t\n", status.ManagedBlock)
+	if status.Changed {
+		result.WriteString("Changes:      required\n")
+	}
+	if status.Conflict {
+		result.WriteString("conflict: installed skill has local modifications\n")
+		fmt.Fprintf(
+			&result,
+			"Remediation: wktbox agents install --target %s --force\n",
+			status.Target,
+		)
+	}
+	return result.String()
 }
 
 func WebtopURL(box state.BoxRecord) string {

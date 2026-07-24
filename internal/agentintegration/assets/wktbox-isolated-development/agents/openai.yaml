@@ -1,0 +1,4 @@
+interface:
+  display_name: "Wktbox Isolated Development"
+  short_description: "Safely run development in Wktbox isolation"
+  default_prompt: "Use $wktbox-isolated-development to choose a checkout, verify prerequisites, and run this task in Docker isolation."

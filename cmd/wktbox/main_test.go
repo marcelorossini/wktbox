@@ -12,7 +12,7 @@ import (
 func TestRunHelpListsCommandsWithoutTouchingRuntime(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := run(nil, cli.Streams{
+	code := run(cli.Dependencies{}, cli.Streams{
 		In:  strings.NewReader(""),
 		Out: &stdout,
 		Err: &stderr,
@@ -29,7 +29,7 @@ func TestRunHelpListsCommandsWithoutTouchingRuntime(t *testing.T) {
 func TestRunWritesStructuredErrorToStderr(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := run(nil, cli.Streams{
+	code := run(cli.Dependencies{}, cli.Streams{
 		In:  strings.NewReader(""),
 		Out: &stdout,
 		Err: &stderr,
