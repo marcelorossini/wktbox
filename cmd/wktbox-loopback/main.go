@@ -12,17 +12,22 @@ import (
 	"syscall"
 	"time"
 
+	"wktbox/internal/interconnect"
 	"wktbox/internal/loopback"
 )
 
 const (
 	controlSocketPath = "/run/wktbox-loopback/control.sock"
 	statusFilePath    = "/run/wktbox-loopback/status.json"
+	dnsListenAddress  = "172.17.0.1:53"
+	dnsUpstream       = "127.0.0.11:53"
 )
 
 type dependencies struct {
-	request func(context.Context, string) (loopback.Status, error)
-	serve   func(context.Context) error
+	request  func(context.Context, string) (loopback.Status, error)
+	serve    func(context.Context) error
+	dnsServe func(context.Context) error
+	dnsProbe func(context.Context) error
 }
 
 func main() {
@@ -53,6 +58,32 @@ func execute(
 			deps.serve = runSidecar
 		}
 		if err := deps.serve(ctx); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback:", err)
+			return 1
+		}
+		return 0
+	case "dns-serve":
+		if len(arguments) != 1 {
+			printUsage(stderr)
+			return 2
+		}
+		if deps.dnsServe == nil {
+			deps.dnsServe = runDNSSidecar
+		}
+		if err := deps.dnsServe(ctx); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback:", err)
+			return 1
+		}
+		return 0
+	case "dns-probe":
+		if len(arguments) != 1 {
+			printUsage(stderr)
+			return 2
+		}
+		if deps.dnsProbe == nil {
+			deps.dnsProbe = probeDNS
+		}
+		if err := deps.dnsProbe(ctx); err != nil {
 			fmt.Fprintln(stderr, "wktbox-loopback:", err)
 			return 1
 		}
@@ -97,8 +128,22 @@ func defaultDependencies() dependencies {
 		request: func(ctx context.Context, command string) (loopback.Status, error) {
 			return loopback.Request(ctx, controlSocketPath, command)
 		},
-		serve: runSidecar,
+		serve:    runSidecar,
+		dnsServe: runDNSSidecar,
+		dnsProbe: probeDNS,
 	}
+}
+
+func runDNSSidecar(ctx context.Context) error {
+	return interconnect.ServeDNS(ctx, interconnect.DNSOptions{
+		ListenAddress:   dnsListenAddress,
+		UpstreamAddress: dnsUpstream,
+		Timeout:         3 * time.Second,
+	})
+}
+
+func probeDNS(ctx context.Context) error {
+	return interconnect.ProbeDNS(ctx, dnsListenAddress)
 }
 
 func runSidecar(ctx context.Context) error {
@@ -184,6 +229,8 @@ func parseOutputFlags(arguments []string) (bool, bool) {
 
 func printUsage(destination io.Writer) {
 	fmt.Fprintln(destination, "Usage: wktbox-loopback serve")
+	fmt.Fprintln(destination, "       wktbox-loopback dns-serve")
+	fmt.Fprintln(destination, "       wktbox-loopback dns-probe")
 	fmt.Fprintln(destination, "       wktbox-loopback sync [--json]")
 	fmt.Fprintln(destination, "       wktbox-loopback status [--json]")
 }

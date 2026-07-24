@@ -109,6 +109,28 @@ func TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts(t *testing.T) {
 	}
 }
 
+func TestRenderIncludesInterconnectDNSWithoutHostSocket(t *testing.T) {
+	files, err := sandbox.Render(t.TempDir(), testSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readFile(t, files.ComposePath)
+	for _, want := range []string{
+		`command: ["--dns=172.17.0.1"]`,
+		"interconnect:",
+		"network_mode: service:docker",
+		`command: ["wktbox-loopback", "dns-serve"]`,
+		"wktbox-loopback dns-probe",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("compose missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "/var/run/docker.sock") {
+		t.Fatal("host Docker socket leaked into interconnect")
+	}
+}
+
 func TestRenderProjectEnvOverrideContainsPathNotContent(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "external env", "project.env")

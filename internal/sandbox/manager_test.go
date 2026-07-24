@@ -564,6 +564,7 @@ func readyComposeStatus() compose.Status {
 			{Service: "docker", State: "running", Health: "healthy"},
 			{Service: "webtop", State: "running"},
 			{Service: "loopback", State: "running", Health: "healthy"},
+			{Service: "interconnect", State: "running", Health: "healthy"},
 		},
 	}
 }

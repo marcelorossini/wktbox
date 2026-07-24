@@ -127,3 +127,31 @@ func TestCommandReportsControlErrorAndInvalidArguments(t *testing.T) {
 		})
 	}
 }
+
+func TestDNSCommandsDelegateToInterconnectRuntime(t *testing.T) {
+	for _, command := range []string{"dns-serve", "dns-probe"} {
+		t.Run(command, func(t *testing.T) {
+			called := ""
+			deps := dependencies{
+				dnsServe: func(context.Context) error {
+					called = "dns-serve"
+					return nil
+				},
+				dnsProbe: func(context.Context) error {
+					called = "dns-probe"
+					return nil
+				},
+			}
+			code := execute(
+				context.Background(),
+				[]string{command},
+				&bytes.Buffer{},
+				&bytes.Buffer{},
+				deps,
+			)
+			if code != 0 || called != command {
+				t.Fatalf("code=%d called=%q", code, called)
+			}
+		})
+	}
+}

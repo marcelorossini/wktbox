@@ -86,7 +86,8 @@ func TestInspectDerivesReadyFromDockerHealthAndRunnerState(t *testing.T) {
 	runner := &recordingRunner{results: []process.Result{{Stdout: `[
 		{"Name":"wktbox-a-docker-1","Service":"docker","State":"running","Health":"healthy"},
 		{"Name":"wktbox-a-webtop-1","Service":"webtop","State":"running","Health":""},
-		{"Name":"wktbox-a-loopback-1","Service":"loopback","State":"running","Health":"healthy"}
+		{"Name":"wktbox-a-loopback-1","Service":"loopback","State":"running","Health":"healthy"},
+		{"Name":"wktbox-a-interconnect-1","Service":"interconnect","State":"running","Health":"healthy"}
 	]`}}}
 	client := compose.NewClient(runner)
 
@@ -103,7 +104,25 @@ func TestInspectRequiresHealthyLoopback(t *testing.T) {
 	runner := &recordingRunner{results: []process.Result{{Stdout: `[
 		{"Name":"wktbox-a-docker-1","Service":"docker","State":"running","Health":"healthy"},
 		{"Name":"wktbox-a-webtop-1","Service":"webtop","State":"running","Health":""},
-		{"Name":"wktbox-a-loopback-1","Service":"loopback","State":"running","Health":"starting"}
+		{"Name":"wktbox-a-loopback-1","Service":"loopback","State":"running","Health":"starting"},
+		{"Name":"wktbox-a-interconnect-1","Service":"interconnect","State":"running","Health":"healthy"}
+	]`}}}
+
+	got, err := compose.NewClient(runner).Inspect(context.Background(), testProject())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Ready() {
+		t.Fatalf("status unexpectedly ready: %#v", got)
+	}
+}
+
+func TestInspectRequiresHealthyInterconnect(t *testing.T) {
+	runner := &recordingRunner{results: []process.Result{{Stdout: `[
+		{"Name":"wktbox-a-docker-1","Service":"docker","State":"running","Health":"healthy"},
+		{"Name":"wktbox-a-webtop-1","Service":"webtop","State":"running","Health":""},
+		{"Name":"wktbox-a-loopback-1","Service":"loopback","State":"running","Health":"healthy"},
+		{"Name":"wktbox-a-interconnect-1","Service":"interconnect","State":"running","Health":"starting"}
 	]`}}}
 
 	got, err := compose.NewClient(runner).Inspect(context.Background(), testProject())
@@ -119,7 +138,8 @@ func TestInspectReportsStoppedWhenNoContainerRuns(t *testing.T) {
 	runner := &recordingRunner{results: []process.Result{{Stdout: `[
 		{"Name":"wktbox-a-docker-1","Service":"docker","State":"exited","Health":""},
 		{"Name":"wktbox-a-webtop-1","Service":"webtop","State":"exited","Health":""},
-		{"Name":"wktbox-a-loopback-1","Service":"loopback","State":"exited","Health":""}
+		{"Name":"wktbox-a-loopback-1","Service":"loopback","State":"exited","Health":""},
+		{"Name":"wktbox-a-interconnect-1","Service":"interconnect","State":"exited","Health":""}
 	]`}}}
 	client := compose.NewClient(runner)
 
@@ -137,6 +157,7 @@ func TestListManagedGroupsContainersByBoxLabel(t *testing.T) {
 		"container-a\tdocker-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\tdocker\tUp 1 minute (healthy)\t",
 		"container-b\twebtop-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\twebtop\tUp 1 minute\t127.0.0.1:23000->61000/tcp",
 		"container-d\tloopback-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\tloopback\tUp 1 minute (healthy)\t",
+		"container-e\tinterconnect-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\tinterconnect\tUp 1 minute (healthy)\t",
 		"container-c\tgateway-a\trunning\ta4f8c9137d2b\t/repo a\twktbox-a4f8c9137d2b\tgateway\tUp 1 minute\t127.0.0.1:23003->8080/tcp",
 	}, "\n")
 	runner := &recordingRunner{results: []process.Result{{Stdout: output}}}

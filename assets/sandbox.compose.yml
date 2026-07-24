@@ -2,6 +2,7 @@ services:
   docker:
     image: ${WKTBOX_DIND_IMAGE}
     hostname: docker
+    command: ["--dns=172.17.0.1"]
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: /certs
@@ -25,6 +26,26 @@ services:
           DOCKER_TLS_VERIFY=1
           DOCKER_CERT_PATH=/certs/client
           docker info >/dev/null 2>&1
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  interconnect:
+    image: ${WKTBOX_WEBTOP_IMAGE}
+    command: ["wktbox-loopback", "dns-serve"]
+    network_mode: service:docker
+    depends_on:
+      docker:
+        condition: service_healthy
+    labels:
+      io.wktbox.managed: "true"
+      io.wktbox.box-id: ${WKTBOX_ID}
+      io.wktbox.worktree: ${WORKTREE_PATH}
+      io.wktbox.version: ${WKTBOX_VERSION}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wktbox-loopback dns-probe
       interval: 3s
       timeout: 3s
       retries: 30

@@ -52,6 +52,7 @@ func (status Status) Ready() bool {
 	dockerReady := false
 	webtopReady := false
 	loopbackReady := false
+	interconnectReady := false
 	for _, container := range status.Containers {
 		switch container.Service {
 		case "docker":
@@ -60,9 +61,11 @@ func (status Status) Ready() bool {
 			webtopReady = container.State == "running"
 		case "loopback":
 			loopbackReady = container.State == "running" && container.Health == "healthy"
+		case "interconnect":
+			interconnectReady = container.State == "running" && container.Health == "healthy"
 		}
 	}
-	return dockerReady && webtopReady && loopbackReady
+	return dockerReady && webtopReady && loopbackReady && interconnectReady
 }
 
 type ManagedProject struct {
@@ -199,11 +202,12 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 	}
 
 	type accumulator struct {
-		project         ManagedProject
-		running         bool
-		dockerHealthy   bool
-		webtopRunning   bool
-		loopbackHealthy bool
+		project             ManagedProject
+		running             bool
+		dockerHealthy       bool
+		webtopRunning       bool
+		loopbackHealthy     bool
+		interconnectHealthy bool
 	}
 	grouped := make(map[string]*accumulator)
 	scanner := bufio.NewScanner(strings.NewReader(result.Stdout))
@@ -253,6 +257,9 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 		case "loopback":
 			entry.loopbackHealthy = containerRunning &&
 				strings.Contains(strings.ToLower(statusText), "(healthy)")
+		case "interconnect":
+			entry.interconnectHealthy = containerRunning &&
+				strings.Contains(strings.ToLower(statusText), "(healthy)")
 		case "gateway":
 			entry.project.GatewayEnabled = true
 		}
@@ -268,7 +275,8 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 		}
 		entry.project.Healthy = entry.dockerHealthy &&
 			entry.webtopRunning &&
-			entry.loopbackHealthy
+			entry.loopbackHealthy &&
+			entry.interconnectHealthy
 		projects = append(projects, entry.project)
 	}
 	sort.Slice(projects, func(left int, right int) bool {

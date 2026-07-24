@@ -5,6 +5,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
+COPY internal/interconnect ./internal/interconnect
 COPY internal/loopback ./internal/loopback
 COPY cmd/wktbox-loopback ./cmd/wktbox-loopback
 
