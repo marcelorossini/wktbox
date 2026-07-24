@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 	"wktbox/internal/state"
 )
 
@@ -24,6 +25,14 @@ func TestSaveIsAtomicAndRoundTrips(t *testing.T) {
 		ProjectName: "wktbox-abc",
 		Status:      state.Ready,
 		CreatedAt:   time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
+		PortMappings: []portforward.Mapping{{
+			Name:          "api",
+			Direction:     portforward.Publish,
+			SourceAddress: "127.0.0.1",
+			SourcePort:    18000,
+			TargetPort:    8000,
+			CreatedAt:     time.Date(2026, 7, 23, 12, 1, 0, 0, time.UTC),
+		}},
 	}
 	if err := store.Save(context.Background(), want); err != nil {
 		t.Fatal(err)
@@ -69,6 +78,22 @@ func TestLoadVersionOneWithoutConnectionsInitializesMap(t *testing.T) {
 	}
 	if got.Connections == nil || len(got.Connections) != 0 {
 		t.Fatalf("connections = %#v", got.Connections)
+	}
+}
+
+func TestLoadVersionOneWithoutPortMappingsKeepsEmptyCollection(t *testing.T) {
+	root := t.TempDir()
+	body := []byte(`{"version":1,"boxes":{"abc":{"id":"abc"}}}`)
+	if err := os.WriteFile(filepath.Join(root, "state.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.NewStore(root).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Boxes["abc"].PortMappings != nil {
+		t.Fatalf("port mappings = %#v", got.Boxes["abc"].PortMappings)
 	}
 }
 

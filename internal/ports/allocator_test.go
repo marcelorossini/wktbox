@@ -17,7 +17,8 @@ func TestReserveReturnsFirstAvailableBlock(t *testing.T) {
 		t.Fatalf("block = %#v", block)
 	}
 	if block.HTTP() != 23000 || block.HTTPS() != 23001 ||
-		block.SSH() != 23002 || block.Gateway() != 23003 {
+		block.SSH() != 23002 || block.Gateway() != 23003 ||
+		block.ImportRelay() != 23004 {
 		t.Fatalf("service ports = %#v", block)
 	}
 }
