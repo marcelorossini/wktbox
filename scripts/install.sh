@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 repository="marcelorossini/wktbox"
 default_base_url="https://github.com/$repository/releases"
@@ -16,16 +16,14 @@ usage() {
 }
 
 require_value() {
-  local option="$1"
-  local value="${2:-}"
-  if [[ -z "$value" ]]; then
-    printf '%s requires a value\n' "$option" >&2
+  if [ -z "${2:-}" ]; then
+    printf '%s requires a value\n' "$1" >&2
     usage >&2
     exit 2
   fi
 }
 
-while (($#)); do
+while [ "$#" -gt 0 ]; do
   case "$1" in
     --version)
       require_value "$1" "${2:-}"
@@ -56,33 +54,32 @@ while (($#)); do
 done
 
 normalize_version() {
-  local candidate="${1#v}"
-  if [[ ! "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
-    printf 'invalid version %q; expected X.Y.Z or vX.Y.Z\n' "$1" >&2
+  normalized_candidate="${1#v}"
+  if ! printf '%s\n' "$normalized_candidate" |
+    grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$'; then
+    printf 'invalid version "%s"; expected X.Y.Z or vX.Y.Z\n' "$1" >&2
     return 1
   fi
-  printf '%s\n' "$candidate"
+  printf '%s\n' "$normalized_candidate"
 }
 
 download() {
-  local url="$1"
-  local destination="$2"
-  curl --fail --location --retry 3 --output "$destination" "$url"
+  curl --fail --location --retry 3 --output "$2" "$1"
 }
 
 temporary="$(mktemp -d)"
 candidate=""
 cleanup() {
   rm -rf "$temporary"
-  if [[ -n "$candidate" ]]; then
+  if [ -n "$candidate" ]; then
     rm -f "$candidate"
   fi
 }
-trap cleanup EXIT
+trap cleanup 0
 
-if [[ -z "$version" ]]; then
+if [ -z "$version" ]; then
   api_url="$default_api_url"
-  if [[ "$custom_base_url" == true ]]; then
+  if [ "$custom_base_url" = true ]; then
     api_url="$base_url/latest"
   fi
   latest_json="$temporary/latest.json"
@@ -93,7 +90,7 @@ if [[ -z "$version" ]]; then
       "$latest_json" |
       head -n 1
   )"
-  if [[ -z "$version" ]]; then
+  if [ -z "$version" ]; then
     printf 'latest release response does not contain tag_name\n' >&2
     exit 1
   fi
@@ -128,12 +125,12 @@ download "$release_url/checksums.txt" "$checksums_path"
 
 expected_digest=""
 while read -r digest file; do
-  if [[ "${file##*/}" == "$archive" ]]; then
+  if [ "${file##*/}" = "$archive" ]; then
     expected_digest="$digest"
     break
   fi
 done <"$checksums_path"
-if [[ -z "$expected_digest" ]]; then
+if [ -z "$expected_digest" ]; then
   printf 'checksum for %s is missing from checksums.txt\n' "$archive" >&2
   exit 1
 fi
@@ -146,7 +143,13 @@ else
   printf 'checksum verification requires sha256sum or shasum\n' >&2
   exit 1
 fi
-if [[ "${actual_digest,,}" != "${expected_digest,,}" ]]; then
+actual_digest="$(
+  printf '%s\n' "$actual_digest" | tr '[:upper:]' '[:lower:]'
+)"
+expected_digest="$(
+  printf '%s\n' "$expected_digest" | tr '[:upper:]' '[:lower:]'
+)"
+if [ "$actual_digest" != "$expected_digest" ]; then
   printf 'checksum verification failed for %s\n' "$archive" >&2
   exit 1
 fi
@@ -154,7 +157,7 @@ fi
 extract_dir="$temporary/extract"
 mkdir -p "$extract_dir"
 tar -xzf "$archive_path" -C "$extract_dir"
-if [[ ! -f "$extract_dir/wktbox" ]]; then
+if [ ! -f "$extract_dir/wktbox" ]; then
   printf 'archive %s does not contain wktbox\n' "$archive" >&2
   exit 1
 fi

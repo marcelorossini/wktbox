@@ -3,6 +3,7 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 installer="$project_root/scripts/install.sh"
+sh -n "$installer"
 temporary="$(mktemp -d)"
 trap 'rm -rf "$temporary"' EXIT
 
@@ -61,7 +62,7 @@ run_installer() {
     PATH="$fake_bin:/usr/bin:/bin" \
     TEST_UNAME_S="$os" \
     TEST_UNAME_M="$architecture" \
-    bash "$installer" "$@"
+    sh "$installer" "$@"
 }
 
 linux_home="$temporary/home-linux"
@@ -168,7 +169,7 @@ path_output="$(
     PATH="$fake_bin:$path_install:/usr/bin:/bin" \
     TEST_UNAME_S=Linux \
     TEST_UNAME_M=x86_64 \
-    bash "$installer" \
+    sh "$installer" \
       --version 0.1.0 \
       --install-dir "$path_install" \
       --base-url "file://$release_root" \
