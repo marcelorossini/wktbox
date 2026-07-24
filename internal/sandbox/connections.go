@@ -93,11 +93,15 @@ func (manager Manager) Connect(
 		if record.Name == "" && name != "" {
 			record.Name = name
 		}
+		if version != "" {
+			record.Version = version
+		}
 	} else {
 		record = state.ConnectionRecord{
 			ID:        id,
 			Name:      name,
 			Network:   connectionNetworkName(id),
+			Version:   version,
 			Members:   memberIDs,
 			Status:    state.ConnectionDegraded,
 			CreatedAt: manager.now().UTC(),
@@ -112,7 +116,6 @@ func (manager Manager) Connect(
 		ctx,
 		&current,
 		record,
-		version,
 	)
 	if saveErr := manager.store.Save(ctx, current); saveErr != nil {
 		if reconcileErr != nil {
@@ -198,13 +201,12 @@ func (manager Manager) reconcileConnection(
 	ctx context.Context,
 	current *state.State,
 	record state.ConnectionRecord,
-	version string,
 ) (state.ConnectionRecord, error) {
 	network := compose.ConnectionNetwork{
 		ID:         record.ID,
 		Name:       record.Name,
 		DockerName: record.Network,
-		Version:    version,
+		Version:    record.Version,
 	}
 	if err := manager.backend.EnsureConnectionNetwork(ctx, network); err != nil {
 		return manager.connectionFailure(current, record, err)
@@ -315,7 +317,6 @@ func (manager Manager) reconcileConnectionsForBox(
 			ctx,
 			current,
 			record,
-			"",
 		); err != nil {
 			return err
 		}
@@ -353,7 +354,6 @@ func (manager Manager) removeBoxFromConnections(
 			ctx,
 			current,
 			record,
-			"",
 		); err != nil {
 			return err
 		}

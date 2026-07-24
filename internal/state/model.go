@@ -37,6 +37,7 @@ type ConnectionRecord struct {
 	ID           string           `json:"id"`
 	Name         string           `json:"name,omitempty"`
 	Network      string           `json:"network"`
+	Version      string           `json:"version,omitempty"`
 	Members      []string         `json:"members"`
 	Status       ConnectionStatus `json:"status"`
 	Error        string           `json:"error,omitempty"`

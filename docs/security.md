@@ -54,6 +54,20 @@ assigned loopback port may attempt to access them.
 Internal TLS protects the DinD API from accidental access outside the box
 containers. It does not transform a privileged container into a VM.
 
+### Connecting boxes
+
+Connecting boxes intentionally adds a shared bridge between the selected DinD
+and Webtop endpoints. Workload containers can resolve peer aliases and reach
+published ports, while images, volumes, daemons, and project-internal networks
+remain independent.
+
+Treat every connected member as part of the same trusted development network.
+A process may attempt to reach any listener available on a peer endpoint, not
+only the intended application. Each DinD API remains protected by a separate
+TLS authority and the host Docker socket is still absent, but the shared network
+is not isolation against hostile peer code. Remove unused connections with
+`wktbox disconnect`.
+
 ## Git modes
 
 The default `git.mode: host` does not mount common Git metadata. In

@@ -48,6 +48,19 @@ o Webtop nem o sidecar montam `/var/run/docker.sock` do host. Isso não
 transforma um container privilegiado em VM. Limites declarados em `resources`
 ainda não são aplicados no schema v1.
 
+### Boxes conectadas
+
+`wktbox connect` cria intencionalmente uma ponte compartilhada entre os
+endpoints DinD e Webtop selecionados. Containers podem resolver os aliases dos
+outros membros e alcançar portas publicadas. Daemons, imagens, volumes e redes
+internas dos projetos continuam separados.
+
+Considere todos os membros como parte da mesma rede de desenvolvimento
+confiável: um processo pode tentar acessar qualquer listener disponível no
+endpoint de outra box. Cada API DinD ainda usa uma autoridade TLS separada e o
+socket Docker do host continua ausente, mas a conexão não isola código hostil.
+Remova vínculos sem uso com `wktbox disconnect`.
+
 ## Segredos
 
 Prefira um arquivo externo por worktree e `--env-file`. Não versione

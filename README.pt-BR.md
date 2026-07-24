@@ -113,6 +113,21 @@ wktbox --path "../projeto feature-b" run -- docker compose up -d
 Cada comando resolve uma identidade estável, reserva um bloco de portas externas
 e usa daemon, containers, redes, imagens e volumes próprios.
 
+## Conectar boxes explicitamente
+
+As boxes continuam isoladas até uma conexão ser criada:
+
+```bash
+wktbox connect a4f dfe --name dev-stack
+wktbox connections dev-stack
+```
+
+Se a box de destino for `dfe31c662a91` e publicar `8000:3000`, containers dos
+outros membros usam `http://dfe31c662a91.wktbox:8000`. A definição sobrevive a
+`stop`, é reconciliada por `up` ou `restart` e pode ser removida com
+`wktbox disconnect dev-stack`. Veja
+[Conexões entre boxes](docs/pt-BR/connections.md).
+
 ## Comandos
 
 - `wktbox up`: cria, inicia ou reconcilia a infraestrutura externa.
@@ -124,6 +139,9 @@ e usa daemon, containers, redes, imagens e volumes próprios.
 - `wktbox list`: lista boxes e reconcilia o cache com os labels Docker.
 - `wktbox status`: mostra estado, worktree, branch, portas, URLs e rotas
   automáticas do Webtop.
+- `wktbox connect <box> <box> [mais...]`: conecta boxes prontas.
+- `wktbox connections [conexão]`: mostra a topologia e os aliases.
+- `wktbox disconnect <conexão>`: remove uma conexão sem destruir as boxes.
 - `wktbox logs [serviço]`: mostra logs do Compose externo; aceita `--follow`.
 - `wktbox stop`: para a box preservando volumes, imagens e dados internos.
 - `wktbox restart`: reinicia a infraestrutura externa e valida a prontidão.

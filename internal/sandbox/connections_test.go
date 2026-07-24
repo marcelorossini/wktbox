@@ -176,6 +176,67 @@ func TestDestroyRemovesMemberAndDeletesConnectionBelowTwo(t *testing.T) {
 	}
 }
 
+func TestRestartReconcilesConnectionWithPersistedVersion(t *testing.T) {
+	manager, backend, _ := connectionManagerFixture(
+		t,
+		connectionBox("a4f8c9137d2b", "frontend", state.Ready, 23000),
+		connectionBox("dfe31c662a91", "api", state.Ready, 23010),
+	)
+	if _, err := manager.Connect(
+		context.Background(),
+		[]string{"a4f", "dfe"},
+		"",
+		"1.2.3",
+	); err != nil {
+		t.Fatal(err)
+	}
+	backend.connectionNetworks = nil
+
+	if err := manager.Restart(context.Background(), "a4f8c9137d2b"); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.connectionNetworks) != 1 ||
+		backend.connectionNetworks[0].Version != "1.2.3" {
+		t.Fatalf("connection networks = %#v", backend.connectionNetworks)
+	}
+}
+
+func TestDestroyRemovesOneMemberButPreservesLargerConnection(t *testing.T) {
+	manager, backend, store := connectionManagerFixture(
+		t,
+		connectionBox("a4f8c9137d2b", "frontend", state.Ready, 23000),
+		connectionBox("dfe31c662a91", "api", state.Ready, 23010),
+		connectionBox("0a11ce55aa01", "worker", state.Ready, 23020),
+	)
+	created, err := manager.Connect(
+		context.Background(),
+		[]string{"a4f", "dfe", "0a1"},
+		"dev-stack",
+		"dev",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.Destroy(context.Background(), "0a11ce55aa01"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, exists := current.Connections[created.ID]
+	if !exists ||
+		len(remaining.Members) != 2 ||
+		remaining.Members[0] != "a4f8c9137d2b" ||
+		remaining.Members[1] != "dfe31c662a91" {
+		t.Fatalf("remaining connection = %#v", remaining)
+	}
+	if len(backend.removeNetworkCalls) != 0 {
+		t.Fatalf("network removals = %#v", backend.removeNetworkCalls)
+	}
+}
+
 func connectionManagerFixture(
 	t *testing.T,
 	boxes ...state.BoxRecord,

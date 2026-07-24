@@ -57,6 +57,7 @@ install-test:
 e2e:
 	bash tests/e2e/automatic_loopback.sh
 	bash tests/e2e/two_worktrees.sh
+	bash tests/e2e/cross_box_connections.sh
 
 release:
 	$(GO_CONTAINER) bash scripts/build.sh "$${WKTBOX_VERSION:-dev}"

@@ -68,6 +68,8 @@ jobs:
         run: bash tests/e2e/automatic_loopback.sh
       - name: Run two-worktree isolation E2E
         run: bash tests/e2e/two_worktrees.sh
+      - name: Run cross-box connection E2E
+        run: bash tests/e2e/cross_box_connections.sh
 
   windows-installer:
     name: PowerShell installer

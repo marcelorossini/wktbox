@@ -122,6 +122,23 @@ through their lifecycle, and prevents Wktbox from running itself inside nested
 DinD. Installation changes only the documented skill directory and one marked
 instruction block. See [Coding-agent integration](docs/agents.md).
 
+## Connect boxes explicitly
+
+Boxes remain isolated unless you connect them. To let workload containers in
+two or more ready boxes reach each other's published ports:
+
+```bash
+wktbox connect a4f dfe --name dev-stack
+wktbox connections dev-stack
+```
+
+If the target box ID is `dfe31c662a91` and its Compose publishes `8000:3000`,
+other members use `http://dfe31c662a91.wktbox:8000`. The persistent connection
+survives `stop` and is reconciled by `up` or `restart`. Remove it with
+`wktbox disconnect dev-stack`. See
+[Cross-box connections](docs/connections.md) for selectors, topology, lifecycle,
+and the trust boundary.
+
 ## CLI
 
 - `wktbox up` creates, starts, or reconciles a box.
@@ -132,6 +149,9 @@ instruction block. See [Coding-agent integration](docs/agents.md).
 - `wktbox open` opens the known Webtop URL.
 - `wktbox list` lists known boxes.
 - `wktbox status` shows box state, ports, URLs, and loopback routes.
+- `wktbox connect <box> <box> [more...]` creates a persistent shared network.
+- `wktbox connections [connection]` shows connection topology and aliases.
+- `wktbox disconnect <connection>` removes one shared network.
 - `wktbox logs [service]` reads external box logs; `--follow` streams them.
 - `wktbox stop` stops a box while preserving its data.
 - `wktbox restart` restarts the external infrastructure.
@@ -158,6 +178,7 @@ Read the [security model](docs/security.md) before adopting it.
 - [Current-checkout quickstart](docs/quickstart.md)
 - [Optional worktrees and lifecycle](docs/worktrees.md)
 - [Coding-agent integration](docs/agents.md)
+- [Cross-box connections](docs/connections.md)
 - [Configuration](docs/configuration.md)
 - [Windows and Docker Desktop](docs/windows.md)
 - [Security model](docs/security.md)

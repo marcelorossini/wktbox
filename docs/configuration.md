@@ -116,6 +116,10 @@ wktbox status
 wktbox --json status
 ```
 
+Cross-box connections also require no configuration section. They are explicit
+persistent resources managed with `wktbox connect`, `wktbox connections`, and
+`wktbox disconnect`; see [Cross-box connections](connections.md).
+
 ## Environment variables and flags
 
 | Variable | Effect |

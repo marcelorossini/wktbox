@@ -70,6 +70,22 @@ wktbox doctor
 Reconcile with `wktbox up`, or use `wktbox run -- <command>`. `wktbox exec`
 intentionally fails when the box is not already ready.
 
+## A cross-box alias does not resolve
+
+Inspect the desired and observed topology:
+
+```bash
+wktbox connections
+wktbox --json connections <name-or-id>
+```
+
+All members must be ready. Run `wktbox up --path <checkout>` for a stopped
+member; the persistent connection is reconciled automatically. Verify that the
+target service has a Compose `ports:` publication and use its published
+left-hand port with the full `<box-id>.wktbox` alias. `EXPOSE` alone is not
+enough. If the connection reports `error`, inspect `wktbox logs interconnect`
+for each member and retry `wktbox connect` with the same members.
+
 ## Bind mounts or file watching fail
 
 Use a local checkout path supported by Docker. On Windows, avoid UNC paths.

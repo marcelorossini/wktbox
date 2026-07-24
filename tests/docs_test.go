@@ -18,14 +18,49 @@ var publicDocs = []string{
 	"docs/quickstart.md",
 	"docs/worktrees.md",
 	"docs/agents.md",
+	"docs/connections.md",
 	"docs/configuration.md",
 	"docs/release-verification.md",
 	"docs/security.md",
 	"docs/troubleshooting.md",
 	"docs/windows.md",
 	"docs/pt-BR/configuration.md",
+	"docs/pt-BR/connections.md",
 	"docs/pt-BR/security.md",
 	"docs/pt-BR/windows.md",
+}
+
+func TestDocsExplainCrossBoxConnectionsAndSecurityBoundary(t *testing.T) {
+	english := readProjectFile(t, "docs/connections.md")
+	portuguese := readProjectFile(t, "docs/pt-BR/connections.md")
+	security := readProjectFile(t, "docs/security.md")
+	for _, expected := range []string{
+		"wktbox connect",
+		"wktbox connections",
+		"wktbox disconnect",
+		".wktbox",
+		"published port",
+		"ready",
+		"restart",
+	} {
+		if !strings.Contains(strings.ToLower(english), strings.ToLower(expected)) {
+			t.Errorf("connection docs missing %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		"wktbox connect",
+		"wktbox connections",
+		"wktbox disconnect",
+		".wktbox",
+	} {
+		if !strings.Contains(portuguese, expected) {
+			t.Errorf("Portuguese connection docs missing %q", expected)
+		}
+	}
+	if !strings.Contains(security, "Connecting boxes") ||
+		!strings.Contains(security, "TLS") {
+		t.Error("security docs do not explain the cross-box trust boundary")
+	}
 }
 
 func TestDocsUseEnglishAsCanonicalLanguage(t *testing.T) {
@@ -236,7 +271,7 @@ func TestDocsListCLIContractAndAutomaticLoopback(t *testing.T) {
 	for _, command := range []string{
 		"up", "run", "exec", "compose", "shell", "open", "list",
 		"status", "logs", "stop", "restart", "destroy", "doctor",
-		"prune", "agents",
+		"prune", "agents", "connect", "connections", "disconnect",
 	} {
 		if !strings.Contains(readme, "`wktbox "+command) {
 			t.Errorf("README does not document %q", command)
