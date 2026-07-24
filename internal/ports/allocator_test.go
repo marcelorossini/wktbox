@@ -2,6 +2,7 @@ package ports_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 
@@ -56,6 +57,13 @@ func TestReserveHonorsCancelledContext(t *testing.T) {
 
 	_, err := ports.NewAllocator(23000, 10).Reserve(ctx, nil)
 	if err != context.Canceled {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestReserveRequiresRoomForImportRelay(t *testing.T) {
+	_, err := ports.NewAllocator(23000, 4).Reserve(context.Background(), nil)
+	if !errors.Is(err, ports.ErrNoPorts) {
 		t.Fatalf("error = %v", err)
 	}
 }

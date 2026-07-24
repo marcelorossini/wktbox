@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
 )
@@ -110,6 +112,9 @@ type Backend interface {
 	ListManaged(context.Context) ([]ManagedProject, error)
 	LoopbackStatus(context.Context, Project) (loopback.Status, error)
 	LoopbackSync(context.Context, Project) (loopback.Status, error)
+	PortImportPreflight(context.Context, Project, []portforward.Mapping) error
+	PortImportApply(context.Context, Project) (loopback.Status, error)
+	PortRuntimeApply(context.Context, Project) error
 	EnsureConnectionNetwork(context.Context, ConnectionNetwork) error
 	InspectConnectionNetwork(context.Context, string) (ConnectionNetworkStatus, error)
 	ConnectConnectionEndpoint(context.Context, ConnectionEndpoint) error
@@ -565,6 +570,63 @@ func (client Client) LoopbackSync(
 	project Project,
 ) (loopback.Status, error) {
 	return client.loopbackCommand(ctx, project, "sync")
+}
+
+func (client Client) PortImportPreflight(
+	ctx context.Context,
+	project Project,
+	mappings []portforward.Mapping,
+) error {
+	body, err := json.Marshal(mappings)
+	if err != nil {
+		return fmt.Errorf("encode candidate port imports: %w", err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(body)
+	_, err = client.run(
+		ctx,
+		project,
+		"exec",
+		"-T",
+		"loopback",
+		"wktbox-loopback",
+		"imports-preflight",
+		"--mappings",
+		encoded,
+	)
+	return err
+}
+
+func (client Client) PortImportApply(
+	ctx context.Context,
+	project Project,
+) (loopback.Status, error) {
+	return client.loopbackCommand(ctx, project, "imports-apply")
+}
+
+func (client Client) PortRuntimeApply(
+	ctx context.Context,
+	project Project,
+) error {
+	if project.PortMappingsEnabled {
+		_, err := client.run(
+			ctx,
+			project,
+			"up",
+			"-d",
+			"--wait",
+			"portbridge",
+		)
+		return err
+	}
+	_, err := client.run(
+		ctx,
+		project,
+		"rm",
+		"--stop",
+		"--force",
+		"portbridge",
+	)
+	return err
 }
 
 func (client Client) loopbackCommand(

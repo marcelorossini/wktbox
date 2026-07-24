@@ -138,6 +138,37 @@ func Render(directory string, spec Spec) (Files, error) {
 	return files, nil
 }
 
+func RenderPortFiles(
+	configPath string,
+	overridePath string,
+	mappings []portforward.Mapping,
+) (bool, error) {
+	if configPath == "" || overridePath == "" {
+		return false, errors.New("port config and override paths are required")
+	}
+	config, err := portforward.RenderConfig(mappings)
+	if err != nil {
+		return false, err
+	}
+	if _, err := writeProtected(configPath, config); err != nil {
+		return false, err
+	}
+	override, err := portforward.RenderComposeOverride(mappings)
+	if err != nil {
+		return false, err
+	}
+	if override == nil {
+		if err := os.Remove(overridePath); err != nil && !os.IsNotExist(err) {
+			return false, fmt.Errorf("remove stale port override: %w", err)
+		}
+		return false, nil
+	}
+	if _, err := writeProtected(overridePath, override); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func validateSpec(spec Spec) error {
 	if !boxIDPattern.MatchString(spec.ID) {
 		return fmt.Errorf("invalid box ID %q", spec.ID)
@@ -145,7 +176,7 @@ func validateSpec(spec Spec) error {
 	if strings.TrimSpace(spec.Worktree) == "" {
 		return errors.New("worktree path is required")
 	}
-	if spec.Ports.Size < 4 || spec.Ports.Start < 1 || spec.Ports.End() > 65535 {
+	if spec.Ports.Size < 5 || spec.Ports.Start < 1 || spec.Ports.End() > 65535 {
 		return fmt.Errorf("invalid port block %#v", spec.Ports)
 	}
 	if spec.Config.Runtime.DindImage == "" || spec.Config.Runtime.WebtopImage == "" {

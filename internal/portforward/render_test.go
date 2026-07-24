@@ -115,3 +115,19 @@ func TestRenderComposeOverrideReturnsNilWithoutPublications(t *testing.T) {
 		t.Fatalf("override = %q", body)
 	}
 }
+
+func TestRenderComposeOverrideBracketsIPv6Loopback(t *testing.T) {
+	body, err := portforward.RenderComposeOverride([]portforward.Mapping{{
+		Name:          "api-v6",
+		Direction:     portforward.Publish,
+		SourceAddress: "::1",
+		SourcePort:    18000,
+		TargetPort:    8000,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "[::1]:18000:18000") {
+		t.Fatalf("IPv6 publication is ambiguous:\n%s", body)
+	}
+}

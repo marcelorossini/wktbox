@@ -12,6 +12,7 @@ import (
 	"wktbox/internal/compose"
 	"wktbox/internal/lock"
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/sandbox"
 	"wktbox/internal/state"
@@ -37,6 +38,13 @@ type fakeBackend struct {
 	disconnectCalls    []compose.ConnectionEndpoint
 	removeNetworkCalls []string
 	connectionErr      error
+	portPreflightErr   error
+	portApplyErr       error
+	portApplyErrors    []error
+	portRuntimeErrors  []error
+	portPreflightCalls [][]portforward.Mapping
+	portApplyCalls     []compose.Project
+	portRuntimeCalls   []compose.Project
 }
 
 type downCall struct {
@@ -101,6 +109,42 @@ func (backend *fakeBackend) LoopbackSync(
 ) (loopback.Status, error) {
 	backend.syncCalls = append(backend.syncCalls, project)
 	return backend.loopback, backend.loopbackErr
+}
+
+func (backend *fakeBackend) PortImportPreflight(
+	_ context.Context,
+	_ compose.Project,
+	mappings []portforward.Mapping,
+) error {
+	backend.portPreflightCalls = append(
+		backend.portPreflightCalls,
+		append([]portforward.Mapping(nil), mappings...),
+	)
+	return backend.portPreflightErr
+}
+
+func (backend *fakeBackend) PortImportApply(
+	_ context.Context,
+	project compose.Project,
+) (loopback.Status, error) {
+	backend.portApplyCalls = append(backend.portApplyCalls, project)
+	index := len(backend.portApplyCalls) - 1
+	if index < len(backend.portApplyErrors) {
+		return backend.loopback, backend.portApplyErrors[index]
+	}
+	return backend.loopback, backend.portApplyErr
+}
+
+func (backend *fakeBackend) PortRuntimeApply(
+	_ context.Context,
+	project compose.Project,
+) error {
+	backend.portRuntimeCalls = append(backend.portRuntimeCalls, project)
+	index := len(backend.portRuntimeCalls) - 1
+	if index < len(backend.portRuntimeErrors) {
+		return backend.portRuntimeErrors[index]
+	}
+	return nil
 }
 
 func (backend *fakeBackend) EnsureConnectionNetwork(

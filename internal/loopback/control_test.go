@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 )
 
 func TestControlSyncAndStatusUsePrivateSocket(t *testing.T) {
@@ -108,6 +109,47 @@ func TestControlReturnsSyncError(t *testing.T) {
 	}
 }
 
+func TestControlPreflightsCandidateImportsWithoutApplying(t *testing.T) {
+	controller := &fakeImportController{
+		fakeController: &fakeController{
+			status: loopback.Status{
+				EventStream: loopback.EventStreamConnected,
+			},
+		},
+	}
+	path, cancel, done := startControl(t, controller)
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}()
+	mappings := []portforward.Mapping{{
+		Name:          "api",
+		Direction:     portforward.Import,
+		SourceAddress: "127.0.0.1",
+		SourcePort:    1234,
+		TargetPort:    1234,
+	}}
+
+	if err := loopback.RequestImportPreflight(
+		context.Background(),
+		path,
+		mappings,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(controller.preflightMappings) != 1 ||
+		controller.preflightMappings[0].Name != "api" ||
+		controller.applyCalls != 0 {
+		t.Fatalf(
+			"preflight=%#v apply=%d",
+			controller.preflightMappings,
+			controller.applyCalls,
+		)
+	}
+}
+
 func TestWriteStatusFileIsAtomicAndWorldReadable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run", "status.json")
 	status := loopback.Status{
@@ -152,6 +194,30 @@ type fakeController struct {
 	status    loopback.Status
 	syncCalls int
 	syncErr   error
+}
+
+type fakeImportController struct {
+	*fakeController
+	preflightMappings []portforward.Mapping
+	applyCalls        int
+}
+
+func (controller *fakeImportController) PreflightImports(
+	_ context.Context,
+	mappings []portforward.Mapping,
+) error {
+	controller.preflightMappings = append(
+		[]portforward.Mapping(nil),
+		mappings...,
+	)
+	return nil
+}
+
+func (controller *fakeImportController) SyncImports(
+	context.Context,
+) (loopback.Status, error) {
+	controller.applyCalls++
+	return controller.status, nil
 }
 
 func (controller *fakeController) Sync(context.Context) (loopback.Status, error) {

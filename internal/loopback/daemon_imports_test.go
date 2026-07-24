@@ -70,6 +70,14 @@ type fakeImportManager struct {
 	warnings []loopback.Warning
 }
 
+func (manager *fakeImportManager) Preflight(
+	context.Context,
+	[]loopback.Container,
+	[]portforward.Mapping,
+) error {
+	return nil
+}
+
 func (manager *fakeImportManager) Apply(
 	_ context.Context,
 	_ []loopback.Container,

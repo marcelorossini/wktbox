@@ -24,6 +24,33 @@ type Manager struct {
 	store   state.Store
 	locks   lock.Manager
 	now     func() time.Time
+	relay   RelayLifecycle
+}
+
+type RelayLifecycle interface {
+	Ensure(context.Context, portforward.RelayProcessOptions) error
+	Stop(context.Context, portforward.RelayProcessOptions) error
+}
+
+type ManagerOptions struct {
+	Relay RelayLifecycle
+}
+
+type nativeRelayLifecycle struct{}
+
+func (nativeRelayLifecycle) Ensure(
+	ctx context.Context,
+	options portforward.RelayProcessOptions,
+) error {
+	_, err := portforward.EnsureRelayProcess(ctx, options)
+	return err
+}
+
+func (nativeRelayLifecycle) Stop(
+	ctx context.Context,
+	options portforward.RelayProcessOptions,
+) error {
+	return portforward.StopRelayProcess(ctx, options)
 }
 
 func NewManager(
@@ -32,11 +59,31 @@ func NewManager(
 	locks lock.Manager,
 	now func() time.Time,
 ) Manager {
+	return NewManagerWithOptions(
+		backend,
+		store,
+		locks,
+		now,
+		ManagerOptions{},
+	)
+}
+
+func NewManagerWithOptions(
+	backend compose.Backend,
+	store state.Store,
+	locks lock.Manager,
+	now func() time.Time,
+	options ManagerOptions,
+) Manager {
+	if options.Relay == nil {
+		options.Relay = nativeRelayLifecycle{}
+	}
 	return Manager{
 		backend: backend,
 		store:   store,
 		locks:   locks,
 		now:     now,
+		relay:   options.Relay,
 	}
 }
 
@@ -139,6 +186,22 @@ func (manager Manager) ensure(
 	}
 	if exists && inspectErr == nil && realStatus.Ready() && !requiresComposeApply {
 		record.Status = state.Ready
+		if err := manager.startImportRelay(ctx, record); err != nil {
+			return state.BoxRecord{}, manager.persistError(
+				ctx,
+				current,
+				record,
+				err,
+			)
+		}
+		if err := manager.applyActivePortRuntime(ctx, record); err != nil {
+			return state.BoxRecord{}, manager.persistError(
+				ctx,
+				current,
+				record,
+				err,
+			)
+		}
 		record = manager.attachLoopback(ctx, record, realStatus)
 		current.Boxes[record.ID] = record
 		if err := manager.reconcileConnectionsForBox(
@@ -168,6 +231,14 @@ func (manager Manager) ensure(
 	}
 
 	var lifecycleErr error
+	if err := manager.startImportRelay(ctx, record); err != nil {
+		return state.BoxRecord{}, manager.persistError(
+			ctx,
+			current,
+			record,
+			err,
+		)
+	}
 	if realStatus.Exists && realStatus.State == compose.Stopped && !requiresComposeApply {
 		lifecycleErr = manager.backend.Start(ctx, project)
 	} else {
@@ -183,6 +254,14 @@ func (manager Manager) ensure(
 	if !realStatus.Ready() {
 		err = fmt.Errorf("box %s did not become ready", record.ID)
 		return state.BoxRecord{}, manager.persistError(ctx, current, record, err)
+	}
+	if err := manager.applyActivePortRuntime(ctx, record); err != nil {
+		return state.BoxRecord{}, manager.persistError(
+			ctx,
+			current,
+			record,
+			err,
+		)
 	}
 
 	record.Status = state.Ready
@@ -301,6 +380,11 @@ func (manager Manager) Stop(ctx context.Context, id string) error {
 	if err := manager.backend.Stop(ctx, projectFor(record)); err != nil {
 		return manager.persistError(ctx, current, record, err)
 	}
+	if len(portforward.Filter(record.PortMappings, portforward.Import)) != 0 {
+		if err := manager.relay.Stop(ctx, relayOptions(record)); err != nil {
+			return manager.persistError(ctx, current, record, err)
+		}
+	}
 	record.Status = state.Stopped
 	current.Boxes[id] = record
 	return manager.store.Save(ctx, current)
@@ -326,6 +410,9 @@ func (manager Manager) Restart(ctx context.Context, id string) error {
 	if err := manager.store.Save(ctx, current); err != nil {
 		return err
 	}
+	if err := manager.startImportRelay(ctx, record); err != nil {
+		return manager.persistError(ctx, current, record, err)
+	}
 	if err := manager.backend.Restart(ctx, projectFor(record)); err != nil {
 		return manager.persistError(ctx, current, record, err)
 	}
@@ -340,6 +427,9 @@ func (manager Manager) Restart(ctx context.Context, id string) error {
 			record,
 			fmt.Errorf("box %s did not become ready after restart", id),
 		)
+	}
+	if err := manager.applyActivePortRuntime(ctx, record); err != nil {
+		return manager.persistError(ctx, current, record, err)
 	}
 	record.Status = state.Ready
 	current.Boxes[id] = record
@@ -394,6 +484,11 @@ func (manager Manager) Destroy(ctx context.Context, id string) error {
 	}
 	if err := manager.backend.Down(ctx, projectFor(record), true); err != nil {
 		return manager.persistError(ctx, current, record, err)
+	}
+	if len(portforward.Filter(record.PortMappings, portforward.Import)) != 0 {
+		if err := manager.relay.Stop(ctx, relayOptions(record)); err != nil {
+			return manager.persistError(ctx, current, record, err)
+		}
 	}
 	if err := manager.removeBoxFromConnections(ctx, &current, id); err != nil {
 		return err
@@ -514,11 +609,14 @@ func projectFor(record state.BoxRecord) compose.Project {
 		files = append(files, record.PortOverridePath)
 	}
 	return compose.Project{
-		Name:                record.ProjectName,
-		Files:               files,
-		EnvFile:             record.SandboxEnvPath,
-		GatewayEnabled:      record.GatewayEnabled,
-		PortMappingsEnabled: len(record.PortMappings) != 0,
+		Name:           record.ProjectName,
+		Files:          files,
+		EnvFile:        record.SandboxEnvPath,
+		GatewayEnabled: record.GatewayEnabled,
+		PortMappingsEnabled: len(portforward.Filter(
+			record.PortMappings,
+			portforward.Publish,
+		)) != 0,
 	}
 }
 

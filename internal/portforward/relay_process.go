@@ -16,6 +16,7 @@ import (
 
 type RelayProcessOptions struct {
 	ListenAddress string
+	ProbeAddress  string
 	ConfigPath    string
 	TokenPath     string
 	PIDPath       string
@@ -125,8 +126,12 @@ func EnsureRelayProcess(
 	if err != nil {
 		return nil, err
 	}
+	probeAddress := options.ProbeAddress
+	if probeAddress == "" {
+		probeAddress = options.ListenAddress
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-	probeErr := ProbeRelay(probeCtx, options.ListenAddress, token)
+	probeErr := ProbeRelay(probeCtx, probeAddress, token)
 	cancel()
 	if probeErr == nil {
 		return token, nil
@@ -147,7 +152,7 @@ func EnsureRelayProcess(
 			return nil, err
 		}
 		probeCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
-		probeErr = ProbeRelay(probeCtx, options.ListenAddress, token)
+		probeErr = ProbeRelay(probeCtx, probeAddress, token)
 		cancel()
 		if probeErr == nil {
 			return token, nil
@@ -156,7 +161,7 @@ func EnsureRelayProcess(
 	}
 	return nil, fmt.Errorf(
 		"host import relay %s did not become ready: %w",
-		options.ListenAddress,
+		probeAddress,
 		probeErr,
 	)
 }
@@ -174,7 +179,11 @@ func StopRelayProcess(
 	}
 	stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if err := StopRelay(stopCtx, options.ListenAddress, token); err != nil {
+	probeAddress := options.ProbeAddress
+	if probeAddress == "" {
+		probeAddress = options.ListenAddress
+	}
+	if err := StopRelay(stopCtx, probeAddress, token); err != nil {
 		var operationError *net.OpError
 		if errors.As(err, &operationError) {
 			return nil

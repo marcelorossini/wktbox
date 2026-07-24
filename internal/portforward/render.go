@@ -3,7 +3,9 @@ package portforward
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 
 	"go.yaml.in/yaml/v4"
 )
@@ -59,12 +61,10 @@ func RenderComposeOverride(mappings []Mapping) ([]byte, error) {
 	}
 	ports := make([]string, 0, len(publications))
 	for _, mapping := range publications {
-		port := fmt.Sprintf(
-			"%s:%d:%d",
+		port := net.JoinHostPort(
 			mapping.SourceAddress,
-			mapping.SourcePort,
-			mapping.SourcePort,
-		)
+			strconv.Itoa(int(mapping.SourcePort)),
+		) + ":" + strconv.Itoa(int(mapping.SourcePort))
 		ports = append(ports, port)
 	}
 	body, err := yaml.Marshal(composeOverride{

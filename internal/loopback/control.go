@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+
+	"wktbox/internal/portforward"
 )
 
 type Controller interface {
@@ -17,10 +19,12 @@ type Controller interface {
 
 type ImportController interface {
 	SyncImports(context.Context) (Status, error)
+	PreflightImports(context.Context, []portforward.Mapping) error
 }
 
 type controlRequest struct {
-	Command string `json:"command"`
+	Command  string                `json:"command"`
+	Mappings []portforward.Mapping `json:"mappings,omitempty"`
 }
 
 type controlResponse struct {
@@ -69,6 +73,26 @@ func ServeControl(ctx context.Context, path string, controller Controller) error
 }
 
 func Request(ctx context.Context, path string, command string) (Status, error) {
+	return request(ctx, path, controlRequest{Command: command})
+}
+
+func RequestImportPreflight(
+	ctx context.Context,
+	path string,
+	mappings []portforward.Mapping,
+) error {
+	_, err := request(ctx, path, controlRequest{
+		Command:  "imports-preflight",
+		Mappings: mappings,
+	})
+	return err
+}
+
+func request(
+	ctx context.Context,
+	path string,
+	request controlRequest,
+) (Status, error) {
 	connection, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
 	if err != nil {
 		return Status{}, fmt.Errorf("connect to loopback control socket: %w", err)
@@ -79,7 +103,7 @@ func Request(ctx context.Context, path string, command string) (Status, error) {
 			return Status{}, fmt.Errorf("set loopback control deadline: %w", err)
 		}
 	}
-	if err := json.NewEncoder(connection).Encode(controlRequest{Command: command}); err != nil {
+	if err := json.NewEncoder(connection).Encode(request); err != nil {
 		return Status{}, fmt.Errorf("write loopback control request: %w", err)
 	}
 	var response controlResponse
@@ -151,6 +175,14 @@ func serveControlConnection(ctx context.Context, connection net.Conn, controller
 			break
 		}
 		status, err = importController.SyncImports(ctx)
+	case "imports-preflight":
+		importController, ok := controller.(ImportController)
+		if !ok {
+			err = errors.New("loopback controller does not support port imports")
+			break
+		}
+		err = importController.PreflightImports(ctx, request.Mappings)
+		status = controller.Status()
 	default:
 		err = fmt.Errorf("unknown loopback command %q", request.Command)
 	}

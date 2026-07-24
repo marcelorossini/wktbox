@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 )
 
 func TestStatusJSONPrintsStatusAndSucceedsWhenConnected(t *testing.T) {
@@ -153,5 +156,61 @@ func TestDNSCommandsDelegateToInterconnectRuntime(t *testing.T) {
 				t.Fatalf("code=%d called=%q", code, called)
 			}
 		})
+	}
+}
+
+func TestPublishServeDelegatesToPublicationRuntime(t *testing.T) {
+	called := false
+	code := execute(
+		context.Background(),
+		[]string{"publish-serve"},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+		dependencies{
+			publishServe: func(context.Context) error {
+				called = true
+				return nil
+			},
+		},
+	)
+	if code != 0 || !called {
+		t.Fatalf("code=%d called=%v", code, called)
+	}
+}
+
+func TestImportPreflightDecodesAndDelegatesCandidateBatch(t *testing.T) {
+	want := []portforward.Mapping{{
+		Name:          "api",
+		Direction:     portforward.Import,
+		SourceAddress: "127.0.0.1",
+		SourcePort:    1234,
+		TargetPort:    1234,
+	}}
+	body, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []portforward.Mapping
+	code := execute(
+		context.Background(),
+		[]string{
+			"imports-preflight",
+			"--mappings",
+			base64.RawURLEncoding.EncodeToString(body),
+		},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+		dependencies{
+			preflight: func(
+				_ context.Context,
+				mappings []portforward.Mapping,
+			) error {
+				got = mappings
+				return nil
+			},
+		},
+	)
+	if code != 0 || len(got) != 1 || got[0].Name != "api" {
+		t.Fatalf("code=%d mappings=%#v", code, got)
 	}
 }

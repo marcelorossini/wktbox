@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,10 +28,12 @@ const (
 )
 
 type dependencies struct {
-	request  func(context.Context, string) (loopback.Status, error)
-	serve    func(context.Context) error
-	dnsServe func(context.Context) error
-	dnsProbe func(context.Context) error
+	request      func(context.Context, string) (loopback.Status, error)
+	preflight    func(context.Context, []portforward.Mapping) error
+	serve        func(context.Context) error
+	publishServe func(context.Context) error
+	dnsServe     func(context.Context) error
+	dnsProbe     func(context.Context) error
 }
 
 func main() {
@@ -71,6 +74,55 @@ func execute(
 			return 1
 		}
 		return 0
+	case "publish-serve":
+		if len(arguments) != 1 {
+			printUsage(stderr)
+			return 2
+		}
+		if deps.publishServe == nil {
+			deps.publishServe = runPublishSidecar
+		}
+		if err := deps.publishServe(ctx); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback:", err)
+			return 1
+		}
+		return 0
+	case "imports-preflight":
+		if len(arguments) != 3 || arguments[1] != "--mappings" {
+			printUsage(stderr)
+			return 2
+		}
+		body, err := base64.RawURLEncoding.DecodeString(arguments[2])
+		if err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback: decode import mappings:", err)
+			return 2
+		}
+		var mappings []portforward.Mapping
+		if err := json.Unmarshal(body, &mappings); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback: decode import mappings:", err)
+			return 2
+		}
+		if err := portforward.ValidateSet(mappings); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback:", err)
+			return 2
+		}
+		if deps.preflight == nil {
+			deps.preflight = func(
+				requestContext context.Context,
+				requested []portforward.Mapping,
+			) error {
+				return loopback.RequestImportPreflight(
+					requestContext,
+					controlSocketPath,
+					requested,
+				)
+			}
+		}
+		if err := deps.preflight(ctx, mappings); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback:", err)
+			return 1
+		}
+		return 0
 	case "dns-serve":
 		if len(arguments) != 1 {
 			printUsage(stderr)
@@ -97,7 +149,7 @@ func execute(
 			return 1
 		}
 		return 0
-	case "status", "sync":
+	case "status", "sync", "imports-apply":
 		jsonOutput, valid := parseOutputFlags(arguments[1:])
 		if !valid {
 			printUsage(stderr)
@@ -137,10 +189,33 @@ func defaultDependencies() dependencies {
 		request: func(ctx context.Context, command string) (loopback.Status, error) {
 			return loopback.Request(ctx, controlSocketPath, command)
 		},
-		serve:    runSidecar,
-		dnsServe: runDNSSidecar,
-		dnsProbe: probeDNS,
+		preflight: func(
+			ctx context.Context,
+			mappings []portforward.Mapping,
+		) error {
+			return loopback.RequestImportPreflight(
+				ctx,
+				controlSocketPath,
+				mappings,
+			)
+		},
+		serve:        runSidecar,
+		publishServe: runPublishSidecar,
+		dnsServe:     runDNSSidecar,
+		dnsProbe:     probeDNS,
 	}
+}
+
+func runPublishSidecar(ctx context.Context) error {
+	configPath := os.Getenv("WKTBOX_PORT_CONFIG")
+	if configPath == "" {
+		return errors.New("WKTBOX_PORT_CONFIG is required")
+	}
+	mappings, err := portforward.LoadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	return loopback.RunPublishServer(ctx, mappings, "docker")
 }
 
 func runDNSSidecar(ctx context.Context) error {
@@ -280,6 +355,17 @@ func (controller persistentController) SyncImports(
 	return status, nil
 }
 
+func (controller persistentController) PreflightImports(
+	ctx context.Context,
+	mappings []portforward.Mapping,
+) error {
+	importController, ok := controller.Controller.(loopback.ImportController)
+	if !ok {
+		return errors.New("loopback controller does not support port imports")
+	}
+	return importController.PreflightImports(ctx, mappings)
+}
+
 func (controller persistentController) Sync(ctx context.Context) (loopback.Status, error) {
 	status, err := controller.Controller.Sync(ctx)
 	if err != nil {
@@ -322,6 +408,9 @@ func parseOutputFlags(arguments []string) (bool, bool) {
 
 func printUsage(destination io.Writer) {
 	fmt.Fprintln(destination, "Usage: wktbox-loopback serve")
+	fmt.Fprintln(destination, "       wktbox-loopback publish-serve")
+	fmt.Fprintln(destination, "       wktbox-loopback imports-preflight --mappings <base64url>")
+	fmt.Fprintln(destination, "       wktbox-loopback imports-apply [--json]")
 	fmt.Fprintln(destination, "       wktbox-loopback dns-serve")
 	fmt.Fprintln(destination, "       wktbox-loopback dns-probe")
 	fmt.Fprintln(destination, "       wktbox-loopback sync [--json]")

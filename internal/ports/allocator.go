@@ -52,7 +52,7 @@ func (allocator Allocator) Reserve(ctx context.Context, used []Block) (Block, er
 	if err := ctx.Err(); err != nil {
 		return Block{}, err
 	}
-	if allocator.base < 1 || allocator.blockSize < 4 {
+	if allocator.base < 1 || allocator.blockSize < 5 {
 		return Block{}, fmt.Errorf(
 			"%w: invalid range base=%d size=%d",
 			ErrNoPorts,
@@ -95,10 +95,14 @@ func blockAvailable(ctx context.Context, block Block) bool {
 
 	var listenConfig net.ListenConfig
 	for port := block.Start; port <= block.End(); port++ {
+		host := "127.0.0.1"
+		if port == block.ImportRelay() {
+			host = "0.0.0.0"
+		}
 		listener, err := listenConfig.Listen(
 			ctx,
 			"tcp4",
-			net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+			net.JoinHostPort(host, strconv.Itoa(port)),
 		)
 		if err != nil {
 			return false

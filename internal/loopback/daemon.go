@@ -32,6 +32,7 @@ type DaemonOptions struct {
 }
 
 type ImportManager interface {
+	Preflight(context.Context, []Container, []portforward.Mapping) error
 	Apply(
 		context.Context,
 		[]Container,
@@ -173,6 +174,22 @@ func (daemon *Daemon) Sync(ctx context.Context) (Status, error) {
 
 func (daemon *Daemon) SyncImports(ctx context.Context) (Status, error) {
 	return daemon.sync(ctx, ImportApplyTransaction)
+}
+
+func (daemon *Daemon) PreflightImports(
+	ctx context.Context,
+	mappings []portforward.Mapping,
+) error {
+	daemon.syncMutex.Lock()
+	defer daemon.syncMutex.Unlock()
+	if daemon.imports == nil {
+		return errors.New("port import reconciler is not configured")
+	}
+	containers, err := daemon.source.Snapshot(ctx)
+	if err != nil {
+		return fmt.Errorf("snapshot inner Docker containers: %w", err)
+	}
+	return daemon.imports.Preflight(ctx, containers, mappings)
 }
 
 func (daemon *Daemon) sync(

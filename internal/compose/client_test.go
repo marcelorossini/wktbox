@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"wktbox/internal/compose"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
 )
@@ -251,6 +252,66 @@ func TestLoopbackStatusExecutesReadOnlySidecarCommand(t *testing.T) {
 	wantSuffix := "exec -T loopback wktbox-loopback status --json"
 	if call := strings.Join(runner.calls[0], " "); !strings.HasSuffix(call, wantSuffix) {
 		t.Fatalf("call = %s", call)
+	}
+}
+
+func TestPortImportPreflightSendsCandidateBatchToSidecar(t *testing.T) {
+	runner := &recordingRunner{}
+	mappings := []portforward.Mapping{{
+		Name:          "api",
+		Direction:     portforward.Import,
+		SourceAddress: "127.0.0.1",
+		SourcePort:    1234,
+		TargetPort:    1234,
+	}}
+	if err := compose.NewClient(runner).PortImportPreflight(
+		context.Background(),
+		testProject(),
+		mappings,
+	); err != nil {
+		t.Fatal(err)
+	}
+	call := strings.Join(runner.calls[0], " ")
+	if !strings.Contains(
+		call,
+		"exec -T loopback wktbox-loopback imports-preflight --mappings ",
+	) {
+		t.Fatalf("call = %s", call)
+	}
+}
+
+func TestPortRuntimeApplyChangesOnlyPortBridge(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		enabled bool
+		suffix  string
+	}{
+		{
+			name:    "activate",
+			enabled: true,
+			suffix:  "up -d --wait portbridge",
+		},
+		{
+			name:    "remove",
+			enabled: false,
+			suffix:  "rm --stop --force portbridge",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &recordingRunner{}
+			project := testProject()
+			project.PortMappingsEnabled = test.enabled
+			if err := compose.NewClient(runner).PortRuntimeApply(
+				context.Background(),
+				project,
+			); err != nil {
+				t.Fatal(err)
+			}
+			call := strings.Join(runner.calls[0], " ")
+			if !strings.HasSuffix(call, test.suffix) {
+				t.Fatalf("call = %s", call)
+			}
+		})
 	}
 }
 
