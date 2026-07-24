@@ -31,6 +31,7 @@ func TestBuiltCLIExposesMVPCommandsAndStructuredErrors(t *testing.T) {
 	for _, command := range []string{
 		"up", "run", "exec", "compose", "shell", "open", "list",
 		"status", "logs", "stop", "restart", "destroy", "doctor",
+		"port",
 	} {
 		if !strings.Contains(string(helpOutput), command) {
 			t.Errorf("help does not list %q:\n%s", command, helpOutput)

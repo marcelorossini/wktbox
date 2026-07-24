@@ -11,6 +11,7 @@ import (
 	"wktbox/internal/agentintegration"
 	"wktbox/internal/loopback"
 	"wktbox/internal/output"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/prune"
 	"wktbox/internal/state"
@@ -97,6 +98,73 @@ func TestWriteErrorJSONGoesToStderr(t *testing.T) {
 	}
 	if got.Error.Code != "box_not_ready" || got.Error.Message != "Box is stopped." {
 		t.Fatalf("error JSON = %#v", got)
+	}
+}
+
+func TestPortMappingsUseStableHumanAndJSONContracts(t *testing.T) {
+	mappings := []portforward.ObservedMapping{
+		{
+			Mapping: portforward.Mapping{
+				Name:          "postgres",
+				Direction:     portforward.Import,
+				SourceAddress: "127.0.0.1",
+				SourcePort:    5432,
+				TargetPort:    15432,
+			},
+			State: portforward.StateReady,
+		},
+		{
+			Mapping: portforward.Mapping{
+				Name:          "api",
+				Direction:     portforward.Publish,
+				SourceAddress: "127.0.0.1",
+				SourcePort:    18000,
+				TargetPort:    8000,
+			},
+			State: portforward.StateReady,
+		},
+	}
+	var human bytes.Buffer
+	if err := output.New(output.Options{Out: &human}).PortMappings(mappings); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"postgres",
+		"import",
+		"127.0.0.1:5432",
+		"localhost:15432",
+		"api",
+		"publish",
+		"127.0.0.1:18000",
+		"docker:8000",
+		"ready",
+	} {
+		if !strings.Contains(human.String(), want) {
+			t.Fatalf("human output missing %q:\n%s", want, human.String())
+		}
+	}
+
+	var structured bytes.Buffer
+	if err := output.New(output.Options{
+		JSON: true,
+		Out:  &structured,
+	}).PortMappings(mappings); err != nil {
+		t.Fatal(err)
+	}
+	var got []output.PortMappingData
+	if err := json.Unmarshal(structured.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 ||
+		got[0].Source != "127.0.0.1:5432" ||
+		got[0].Target != "localhost:15432" ||
+		got[1].Target != "docker:8000" {
+		t.Fatalf("JSON mappings = %#v", got)
+	}
+	for _, forbidden := range []string{"token", "pid"} {
+		if strings.Contains(strings.ToLower(structured.String()), forbidden) {
+			t.Fatalf("secret field %q in %s", forbidden, structured.String())
+		}
 	}
 }
 

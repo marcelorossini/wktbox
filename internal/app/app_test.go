@@ -15,6 +15,7 @@ import (
 	"wktbox/internal/executor"
 	"wktbox/internal/identity"
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
 	"wktbox/internal/prune"
@@ -37,6 +38,9 @@ type fakeManager struct {
 	connectName        string
 	connectVersion     string
 	connectionSelector string
+	portMappings       []portforward.ObservedMapping
+	portID             string
+	importedMappings   []portforward.Mapping
 }
 
 func (manager *fakeManager) EnsureAllocated(
@@ -124,6 +128,86 @@ func (manager *fakeManager) Disconnect(
 ) (state.ConnectionRecord, error) {
 	manager.connectionSelector = selector
 	return manager.connection, nil
+}
+
+func (manager *fakeManager) ImportPorts(
+	_ context.Context,
+	id string,
+	mappings []portforward.Mapping,
+) ([]portforward.ObservedMapping, error) {
+	manager.portID = id
+	manager.importedMappings = append(
+		[]portforward.Mapping(nil),
+		mappings...,
+	)
+	return manager.portMappings, nil
+}
+
+func (manager *fakeManager) PublishPorts(
+	context.Context,
+	string,
+	[]portforward.Mapping,
+) ([]portforward.ObservedMapping, error) {
+	return manager.portMappings, nil
+}
+
+func (manager *fakeManager) PortMappings(
+	context.Context,
+	string,
+) ([]portforward.ObservedMapping, error) {
+	return manager.portMappings, nil
+}
+
+func (manager *fakeManager) RemovePortMappings(
+	context.Context,
+	string,
+	[]string,
+	portforward.Direction,
+) ([]portforward.ObservedMapping, error) {
+	return manager.portMappings, nil
+}
+
+func TestPortOperationsRequireReadyBoxAndDelegateByID(t *testing.T) {
+	manager := &fakeManager{
+		portMappings: []portforward.ObservedMapping{{
+			Mapping: portforward.Mapping{
+				Name:      "api",
+				Direction: portforward.Import,
+			},
+			State: portforward.StateReady,
+		}},
+	}
+	service := app.New(app.Options{Manager: manager})
+	mappings := []portforward.Mapping{{
+		Name:          "api",
+		Direction:     portforward.Import,
+		SourceAddress: "127.0.0.1",
+		SourcePort:    1234,
+		TargetPort:    1234,
+	}}
+
+	got, err := service.ImportPorts(
+		context.Background(),
+		state.BoxRecord{ID: "a4f8c9137d2b", Status: state.Ready},
+		mappings,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 ||
+		manager.portID != "a4f8c9137d2b" ||
+		!reflect.DeepEqual(manager.importedMappings, mappings) {
+		t.Fatalf("observed=%#v manager=%#v", got, manager)
+	}
+
+	_, err = service.ImportPorts(
+		context.Background(),
+		state.BoxRecord{ID: "a4f8c9137d2b", Status: state.Stopped},
+		mappings,
+	)
+	if err == nil || !strings.Contains(err.Error(), "wktbox up") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 type discoveryRunner struct {
@@ -628,6 +712,51 @@ func TestLogsStreamsDockerComposeArgumentsWithoutShell(t *testing.T) {
 	if !reflect.DeepEqual(got.Arguments, want) {
 		t.Fatalf("arguments = %#v, want %#v", got.Arguments, want)
 	}
+}
+
+func TestLogsIncludesPublicationOverrideAndProfile(t *testing.T) {
+	interactive := &interactiveRunner{}
+	service := app.New(app.Options{
+		Manager:           &fakeManager{},
+		InteractiveRunner: interactive,
+	})
+	box := state.BoxRecord{
+		ID:               "a4f8c9137d2b",
+		ProjectName:      "wktbox-a4f8c9137d2b",
+		ComposePath:      "/state/compose.yml",
+		SandboxEnvPath:   "/state/sandbox.env",
+		PortOverridePath: "/state/ports.override.yml",
+		PortMappings: []portforward.Mapping{{
+			Name:          "api",
+			Direction:     portforward.Publish,
+			SourceAddress: "127.0.0.1",
+			SourcePort:    18000,
+			TargetPort:    8000,
+		}},
+	}
+
+	if _, err := service.Logs(
+		context.Background(),
+		box,
+		"portbridge",
+		false,
+		io.Discard,
+		io.Discard,
+	); err != nil {
+		t.Fatal(err)
+	}
+	got := interactive.invocations[0].Arguments
+	wantFragments := []string{
+		"-f", box.PortOverridePath,
+		"--profile", "ports",
+		"logs", "portbridge",
+	}
+	for index := 0; index <= len(got)-len(wantFragments); index++ {
+		if reflect.DeepEqual(got[index:index+len(wantFragments)], wantFragments) {
+			return
+		}
+	}
+	t.Fatalf("arguments = %#v; missing %#v", got, wantFragments)
 }
 
 func TestResolutionCarriesFlagOverridesWithoutReadingCommandEnvironment(t *testing.T) {

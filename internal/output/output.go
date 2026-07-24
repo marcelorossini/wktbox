@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
 	"wktbox/internal/agentintegration"
 	"wktbox/internal/connection"
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 	"wktbox/internal/prune"
 	"wktbox/internal/state"
 )
@@ -41,16 +44,26 @@ type PortSet struct {
 }
 
 type BoxData struct {
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Status     state.Status    `json:"status"`
-	Worktree   string          `json:"worktree"`
-	Branch     string          `json:"branch,omitempty"`
-	URLs       URLs            `json:"urls"`
-	Ports      PortSet         `json:"ports"`
-	CreatedAt  *time.Time      `json:"createdAt,omitempty"`
-	LastUsedAt *time.Time      `json:"lastUsedAt,omitempty"`
-	Loopback   loopback.Status `json:"loopback"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Status       state.Status      `json:"status"`
+	Worktree     string            `json:"worktree"`
+	Branch       string            `json:"branch,omitempty"`
+	URLs         URLs              `json:"urls"`
+	Ports        PortSet           `json:"ports"`
+	CreatedAt    *time.Time        `json:"createdAt,omitempty"`
+	LastUsedAt   *time.Time        `json:"lastUsedAt,omitempty"`
+	Loopback     loopback.Status   `json:"loopback"`
+	PortMappings []PortMappingData `json:"portMappings,omitempty"`
+}
+
+type PortMappingData struct {
+	Name      string                `json:"name"`
+	Direction portforward.Direction `json:"direction"`
+	Source    string                `json:"source"`
+	Target    string                `json:"target"`
+	State     string                `json:"state"`
+	Error     string                `json:"error,omitempty"`
 }
 
 type ConnectionMemberData struct {
@@ -169,6 +182,27 @@ func (renderer Renderer) Connections(
 		}
 	}
 	return nil
+}
+
+func (renderer Renderer) PortMappings(
+	mappings []portforward.ObservedMapping,
+) error {
+	data := make([]PortMappingData, 0, len(mappings))
+	for _, mapping := range mappings {
+		data = append(data, portMappingData(mapping))
+	}
+	if renderer.json {
+		return writeJSON(renderer.out, data)
+	}
+	if renderer.quiet {
+		return nil
+	}
+	if len(data) == 0 {
+		_, err := fmt.Fprintln(renderer.out, "No port mappings found.")
+		return err
+	}
+	_, err := fmt.Fprint(renderer.out, humanPortMappings(data, false))
+	return err
 }
 
 func (renderer Renderer) Value(value any) error {
@@ -389,6 +423,12 @@ func boxData(box state.BoxRecord) BoxData {
 		lastUsedAt := box.LastUsedAt
 		data.LastUsedAt = &lastUsedAt
 	}
+	for _, mapping := range observedBoxMappings(box) {
+		data.PortMappings = append(
+			data.PortMappings,
+			portMappingData(mapping),
+		)
+	}
 	return data
 }
 
@@ -454,6 +494,84 @@ func humanBox(box state.BoxRecord) string {
 	}
 	if box.Loopback.EventStream != "" {
 		result.WriteString(humanLoopback(box.Loopback, false))
+	}
+	if len(box.PortMappings) != 0 {
+		data := make([]PortMappingData, 0, len(box.PortMappings))
+		for _, mapping := range observedBoxMappings(box) {
+			data = append(data, portMappingData(mapping))
+		}
+		result.WriteString(humanPortMappings(data, true))
+	}
+	return result.String()
+}
+
+func portMappingData(mapping portforward.ObservedMapping) PortMappingData {
+	targetHost := "localhost"
+	if mapping.Direction == portforward.Publish {
+		targetHost = "docker"
+	}
+	return PortMappingData{
+		Name:      mapping.Name,
+		Direction: mapping.Direction,
+		Source: net.JoinHostPort(
+			mapping.SourceAddress,
+			strconv.Itoa(int(mapping.SourcePort)),
+		),
+		Target: net.JoinHostPort(
+			targetHost,
+			strconv.Itoa(int(mapping.TargetPort)),
+		),
+		State: mapping.State,
+		Error: mapping.Error,
+	}
+}
+
+func observedBoxMappings(box state.BoxRecord) []portforward.ObservedMapping {
+	mappings := append([]portforward.Mapping(nil), box.PortMappings...)
+	portforward.Sort(mappings)
+	mappingState := portforward.StateStopped
+	if box.Status == state.Ready {
+		mappingState = portforward.StateReady
+	} else if box.Status == state.Error {
+		mappingState = portforward.StateDegraded
+	}
+	result := make([]portforward.ObservedMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		result = append(result, portforward.ObservedMapping{
+			Mapping: mapping,
+			State:   mappingState,
+		})
+	}
+	return result
+}
+
+func humanPortMappings(mappings []PortMappingData, section bool) string {
+	var result strings.Builder
+	if section {
+		result.WriteString("Port mappings:\n")
+	}
+	fmt.Fprintf(
+		&result,
+		"%-20s %-10s %-24s %-24s %s\n",
+		"NAME",
+		"DIRECTION",
+		"HOST",
+		"BOX/CONTAINERS",
+		"STATE",
+	)
+	for _, mapping := range mappings {
+		fmt.Fprintf(
+			&result,
+			"%-20s %-10s %-24s %-24s %s\n",
+			mapping.Name,
+			mapping.Direction,
+			mapping.Source,
+			mapping.Target,
+			mapping.State,
+		)
+		if mapping.Error != "" {
+			fmt.Fprintf(&result, "  error: %s\n", mapping.Error)
+		}
 	}
 	return result.String()
 }

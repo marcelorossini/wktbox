@@ -24,6 +24,7 @@ import (
 	"wktbox/internal/lock"
 	"wktbox/internal/loopback"
 	"wktbox/internal/output"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
 	"wktbox/internal/prune"
@@ -61,6 +62,10 @@ type SandboxManager interface {
 	Connect(context.Context, []string, string, string) (state.ConnectionRecord, error)
 	Connections(context.Context, string) ([]state.ConnectionRecord, error)
 	Disconnect(context.Context, string) (state.ConnectionRecord, error)
+	ImportPorts(context.Context, string, []portforward.Mapping) ([]portforward.ObservedMapping, error)
+	PublishPorts(context.Context, string, []portforward.Mapping) ([]portforward.ObservedMapping, error)
+	PortMappings(context.Context, string) ([]portforward.ObservedMapping, error)
+	RemovePortMappings(context.Context, string, []string, portforward.Direction) ([]portforward.ObservedMapping, error)
 }
 
 type Options struct {
@@ -336,6 +341,69 @@ func (application *App) Disconnect(
 	return application.manager.Disconnect(ctx, selector)
 }
 
+func (application *App) ImportPorts(
+	ctx context.Context,
+	box state.BoxRecord,
+	mappings []portforward.Mapping,
+) ([]portforward.ObservedMapping, error) {
+	if err := application.validatePortBox(box); err != nil {
+		return nil, err
+	}
+	return application.manager.ImportPorts(ctx, box.ID, mappings)
+}
+
+func (application *App) PublishPorts(
+	ctx context.Context,
+	box state.BoxRecord,
+	mappings []portforward.Mapping,
+) ([]portforward.ObservedMapping, error) {
+	if err := application.validatePortBox(box); err != nil {
+		return nil, err
+	}
+	return application.manager.PublishPorts(ctx, box.ID, mappings)
+}
+
+func (application *App) PortMappings(
+	ctx context.Context,
+	box state.BoxRecord,
+) ([]portforward.ObservedMapping, error) {
+	if err := application.validatePortBox(box); err != nil {
+		return nil, err
+	}
+	return application.manager.PortMappings(ctx, box.ID)
+}
+
+func (application *App) RemovePortMappings(
+	ctx context.Context,
+	box state.BoxRecord,
+	names []string,
+	direction portforward.Direction,
+) ([]portforward.ObservedMapping, error) {
+	if err := application.validatePortBox(box); err != nil {
+		return nil, err
+	}
+	return application.manager.RemovePortMappings(
+		ctx,
+		box.ID,
+		names,
+		direction,
+	)
+}
+
+func (application *App) validatePortBox(box state.BoxRecord) error {
+	if application.manager == nil {
+		return errors.New("sandbox manager is not configured")
+	}
+	if box.Status != state.Ready {
+		return fmt.Errorf(
+			"box %s is %s; run wktbox up before changing port mappings",
+			box.ID,
+			box.Status,
+		)
+	}
+	return nil
+}
+
 func (application *App) Prune(
 	ctx context.Context,
 	force bool,
@@ -519,8 +587,14 @@ func composeArguments(box state.BoxRecord) []string {
 	if box.ProjectEnvOverridePath != "" {
 		arguments = append(arguments, "-f", box.ProjectEnvOverridePath)
 	}
+	if box.PortOverridePath != "" {
+		arguments = append(arguments, "-f", box.PortOverridePath)
+	}
 	if box.GatewayEnabled {
 		arguments = append(arguments, "--profile", "gateway")
+	}
+	if len(portforward.Filter(box.PortMappings, portforward.Publish)) != 0 {
+		arguments = append(arguments, "--profile", "ports")
 	}
 	return arguments
 }

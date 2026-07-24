@@ -16,27 +16,29 @@ import (
 	"wktbox/internal/cli"
 	"wktbox/internal/executor"
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/prune"
 	"wktbox/internal/state"
 )
 
 type fakeService struct {
-	calls       []string
-	status      state.Status
-	runCode     int
-	runErr      error
-	box         state.BoxRecord
-	list        []state.BoxRecord
-	logOutput   string
-	doctorData  any
-	syncStatus  loopback.Status
-	syncErr     error
-	childOut    string
-	pruneData   prune.Report
-	pruneErr    error
-	connection  state.ConnectionRecord
-	connections []state.ConnectionRecord
+	calls        []string
+	status       state.Status
+	runCode      int
+	runErr       error
+	box          state.BoxRecord
+	list         []state.BoxRecord
+	logOutput    string
+	doctorData   any
+	syncStatus   loopback.Status
+	syncErr      error
+	childOut     string
+	pruneData    prune.Report
+	pruneErr     error
+	connection   state.ConnectionRecord
+	connections  []state.ConnectionRecord
+	portMappings []portforward.ObservedMapping
 }
 
 type fakeAgentManager struct {
@@ -221,6 +223,212 @@ func (fake *fakeService) Open(_ context.Context, _ state.BoxRecord) error {
 func (fake *fakeService) Doctor(_ context.Context, request app.Request) (any, error) {
 	fake.calls = append(fake.calls, "Doctor:"+request.Path)
 	return fake.doctorData, nil
+}
+
+func (fake *fakeService) ImportPorts(
+	_ context.Context,
+	_ state.BoxRecord,
+	mappings []portforward.Mapping,
+) ([]portforward.ObservedMapping, error) {
+	fake.calls = append(fake.calls, "ImportPorts:"+portMappingNames(mappings))
+	return fakePortObservations(mappings), nil
+}
+
+func (fake *fakeService) PublishPorts(
+	_ context.Context,
+	_ state.BoxRecord,
+	mappings []portforward.Mapping,
+) ([]portforward.ObservedMapping, error) {
+	fake.calls = append(fake.calls, "PublishPorts:"+portMappingNames(mappings))
+	return fakePortObservations(mappings), nil
+}
+
+func (fake *fakeService) PortMappings(
+	context.Context,
+	state.BoxRecord,
+) ([]portforward.ObservedMapping, error) {
+	fake.calls = append(fake.calls, "PortMappings")
+	return fake.portMappings, nil
+}
+
+func (fake *fakeService) RemovePortMappings(
+	_ context.Context,
+	_ state.BoxRecord,
+	names []string,
+	direction portforward.Direction,
+) ([]portforward.ObservedMapping, error) {
+	fake.calls = append(
+		fake.calls,
+		"RemovePortMappings:"+strings.Join(names, "|")+":"+string(direction),
+	)
+	return fake.portMappings, nil
+}
+
+func fakePortObservations(
+	mappings []portforward.Mapping,
+) []portforward.ObservedMapping {
+	result := make([]portforward.ObservedMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		result = append(result, portforward.ObservedMapping{
+			Mapping: mapping,
+			State:   portforward.StateReady,
+		})
+	}
+	return result
+}
+
+func portMappingNames(mappings []portforward.Mapping) string {
+	names := make([]string, 0, len(mappings))
+	for _, mapping := range mappings {
+		names = append(names, mapping.Name)
+	}
+	return strings.Join(names, "|")
+}
+
+func TestPortImportAcceptsMultipleHostPortsAsOneBatch(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"port", "import", "1234", "5432"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	assertCalls(
+		t,
+		fake.calls,
+		"Resolve:.",
+		"Inspect",
+		"ImportPorts:import-1234|import-5432",
+	)
+}
+
+func TestPortPublishAcceptsMultipleNamedMapsAsOneBatch(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{
+		"port", "publish",
+		"--map", "frontend=127.0.0.1:15173:5173",
+		"--map", "api=127.0.0.1:18000:8000",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	assertCalls(
+		t,
+		fake.calls,
+		"Resolve:.",
+		"Inspect",
+		"PublishPorts:api|frontend",
+	)
+}
+
+func TestPortListJSONNeverContainsRelaySecrets(t *testing.T) {
+	fake := newFakeService()
+	fake.portMappings = []portforward.ObservedMapping{{
+		Mapping: portforward.Mapping{
+			Name:          "api",
+			Direction:     portforward.Publish,
+			SourceAddress: "127.0.0.1",
+			SourcePort:    18000,
+			TargetPort:    8000,
+		},
+		State: portforward.StateReady,
+	}}
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
+	root.SetArgs([]string{"--json", "port", "list"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	output := strings.ToLower(streams.Out.(*bytes.Buffer).String())
+	for _, forbidden := range []string{"token", "pid", "relay"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("secret field %q in %s", forbidden, output)
+		}
+	}
+	assertCalls(t, fake.calls, "Resolve:.", "Inspect", "PortMappings")
+}
+
+func TestPortRemoveSupportsAllImportsWithoutNames(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"port", "remove", "--all-imports"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	assertCalls(
+		t,
+		fake.calls,
+		"Resolve:.",
+		"Inspect",
+		"RemovePortMappings::import",
+	)
+}
+
+func TestPortCommandsRejectStoppedBoxBeforeMutation(t *testing.T) {
+	fake := newFakeService()
+	fake.status = state.Stopped
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"port", "import", "1234"})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "wktbox up") {
+		t.Fatalf("error = %v", err)
+	}
+	assertCalls(t, fake.calls, "Resolve:.", "Inspect")
+}
+
+func TestPortImportRejectsMixedSyntaxBeforeResolvingBox(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{
+		"port", "import", "1234",
+		"--map", "api=127.0.0.1:1234:4321",
+	})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "either positional ports or --map") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("calls = %#v", fake.calls)
+	}
+}
+
+func TestPortRemoveRejectsConflictingSelectorsBeforeResolvingBox(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{
+		"port", "remove",
+		"--all-imports",
+		"--all-publications",
+	})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "provide mapping names") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("calls = %#v", fake.calls)
+	}
+}
+
+func TestPortHelpListsDirectionalCommands(t *testing.T) {
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{}, streams)
+	root.SetArgs([]string{"port", "--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	help := streams.Out.(*bytes.Buffer).String()
+	for _, command := range []string{"import", "publish", "list", "remove"} {
+		if !strings.Contains(help, command) {
+			t.Fatalf("port help missing %q:\n%s", command, help)
+		}
+	}
 }
 
 func TestRunEnsuresBoxThenPassesChildArgsAndEnvironment(t *testing.T) {

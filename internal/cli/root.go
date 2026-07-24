@@ -16,6 +16,7 @@ import (
 	"wktbox/internal/executor"
 	"wktbox/internal/loopback"
 	"wktbox/internal/output"
+	"wktbox/internal/portforward"
 	"wktbox/internal/prune"
 	"wktbox/internal/sandbox"
 	"wktbox/internal/state"
@@ -57,6 +58,10 @@ type Service interface {
 	Destroy(context.Context, app.Resolution) error
 	Open(context.Context, state.BoxRecord) error
 	Doctor(context.Context, app.Request) (any, error)
+	ImportPorts(context.Context, state.BoxRecord, []portforward.Mapping) ([]portforward.ObservedMapping, error)
+	PublishPorts(context.Context, state.BoxRecord, []portforward.Mapping) ([]portforward.ObservedMapping, error)
+	PortMappings(context.Context, state.BoxRecord) ([]portforward.ObservedMapping, error)
+	RemovePortMappings(context.Context, state.BoxRecord, []string, portforward.Direction) ([]portforward.ObservedMapping, error)
 }
 
 type AgentManager interface {
@@ -166,9 +171,201 @@ func New(dependencies Dependencies, streams Streams) *cobra.Command {
 		commands.destroy(),
 		commands.doctor(),
 		commands.prune(),
+		commands.portCommands(),
 		commands.agentCommands(),
 	)
 	return root
+}
+
+func (commands commandSet) portCommands() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "port",
+		Short: "Import host services or publish box ports",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return command.Help()
+		},
+	}
+	command.AddCommand(
+		commands.portImport(),
+		commands.portPublish(),
+		commands.portList(),
+		commands.portRemove(),
+	)
+	return command
+}
+
+func (commands commandSet) portImport() *cobra.Command {
+	var mapped []string
+	command := &cobra.Command{
+		Use:   "import <host-port> [<host-port>...]",
+		Short: "Expose real-host TCP services as workload localhost ports",
+		RunE: func(command *cobra.Command, arguments []string) error {
+			mappings, err := portforward.ParseImports(arguments, mapped)
+			if err != nil {
+				return err
+			}
+			box, err := commands.portReadyBox(command.Context())
+			if err != nil {
+				return err
+			}
+			observed, err := commands.service.ImportPorts(
+				command.Context(),
+				box,
+				mappings,
+			)
+			if err != nil {
+				return err
+			}
+			return commands.renderer().PortMappings(observed)
+		},
+	}
+	command.Flags().StringArrayVar(
+		&mapped,
+		"map",
+		nil,
+		"mapping name=host-address:host-port:container-port (repeatable)",
+	)
+	return command
+}
+
+func (commands commandSet) portPublish() *cobra.Command {
+	var mapped []string
+	command := &cobra.Command{
+		Use:   "publish",
+		Short: "Publish DinD TCP ports on real-host loopback",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			mappings, err := portforward.ParsePublications(mapped)
+			if err != nil {
+				return err
+			}
+			box, err := commands.portReadyBox(command.Context())
+			if err != nil {
+				return err
+			}
+			observed, err := commands.service.PublishPorts(
+				command.Context(),
+				box,
+				mappings,
+			)
+			if err != nil {
+				return err
+			}
+			return commands.renderer().PortMappings(observed)
+		},
+	}
+	command.Flags().StringArrayVar(
+		&mapped,
+		"map",
+		nil,
+		"mapping name=bind-address:host-port:box-port (repeatable)",
+	)
+	return command
+}
+
+func (commands commandSet) portList() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List desired and observed port mappings",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			box, err := commands.portReadyBox(command.Context())
+			if err != nil {
+				return err
+			}
+			mappings, err := commands.service.PortMappings(
+				command.Context(),
+				box,
+			)
+			if err != nil {
+				return err
+			}
+			return commands.renderer().PortMappings(mappings)
+		},
+	}
+}
+
+func (commands commandSet) portRemove() *cobra.Command {
+	var allImports bool
+	var allPublications bool
+	command := &cobra.Command{
+		Use:   "remove <name> [<name>...]",
+		Short: "Remove named mappings or every mapping in one direction",
+		RunE: func(command *cobra.Command, arguments []string) error {
+			allCount := 0
+			if allImports {
+				allCount++
+			}
+			if allPublications {
+				allCount++
+			}
+			if len(arguments) != 0 && allCount != 0 {
+				return errors.New(
+					"use mapping names or one --all-* flag, not both",
+				)
+			}
+			if len(arguments) == 0 && allCount != 1 {
+				return errors.New(
+					"provide mapping names, --all-imports, or --all-publications",
+				)
+			}
+			direction := portforward.Direction("")
+			if allImports {
+				direction = portforward.Import
+			}
+			if allPublications {
+				direction = portforward.Publish
+			}
+			box, err := commands.portReadyBox(command.Context())
+			if err != nil {
+				return err
+			}
+			mappings, err := commands.service.RemovePortMappings(
+				command.Context(),
+				box,
+				arguments,
+				direction,
+			)
+			if err != nil {
+				return err
+			}
+			return commands.renderer().PortMappings(mappings)
+		},
+	}
+	command.Flags().BoolVar(
+		&allImports,
+		"all-imports",
+		false,
+		"remove every host-to-workload import",
+	)
+	command.Flags().BoolVar(
+		&allPublications,
+		"all-publications",
+		false,
+		"remove every box-to-host publication",
+	)
+	return command
+}
+
+func (commands commandSet) portReadyBox(
+	ctx context.Context,
+) (state.BoxRecord, error) {
+	if commands.service == nil {
+		return state.BoxRecord{}, errors.New("sandbox service is not configured")
+	}
+	resolution, err := commands.resolve(ctx)
+	if err != nil {
+		return state.BoxRecord{}, err
+	}
+	box, err := commands.service.Inspect(ctx, resolution)
+	if err != nil {
+		return state.BoxRecord{}, err
+	}
+	if box.Status != state.Ready {
+		return state.BoxRecord{}, boxNotReadyError(box.Status)
+	}
+	return box, nil
 }
 
 func (commands commandSet) connect() *cobra.Command {
