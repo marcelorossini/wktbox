@@ -6,6 +6,15 @@ All notable changes to Wktbox are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-24
+
+### Added
+
+- Accepted any existing directory as a workspace, with automatic optional Git
+  detection and exact `--path` mounting.
+- Added non-Git workspace diagnostics, agent guidance, scorer coverage, and a
+  real Docker E2E that verifies Wktbox never initializes Git implicitly.
+
 ## [0.1.1] - 2026-07-24
 
 ### Fixed
@@ -44,6 +53,7 @@ All notable changes to Wktbox are documented here. The format follows
 - Bound host-facing services to loopback and stored generated state with
   restrictive permissions.
 
-[Unreleased]: https://github.com/marcelorossini/wktbox/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/marcelorossini/wktbox/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/marcelorossini/wktbox/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/marcelorossini/wktbox/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/marcelorossini/wktbox/releases/tag/v0.1.0
