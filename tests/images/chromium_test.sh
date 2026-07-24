@@ -31,7 +31,6 @@ WKTBOX_CHROMIUM_PROFILE="$profile" \
   https://example.test
 
 for expected in \
-  "--remote-debugging-address=0.0.0.0" \
   "--remote-debugging-port=9222" \
   "--user-data-dir=$profile" \
   "https://example.test"; do
@@ -97,5 +96,19 @@ for expected in \
   "X-GNOME-Autostart-enabled=true"; do
   grep -Fx -- "$expected" "$desktop_file" >/dev/null
 done
+
+relay_service="$project_root/images/webtop/s6-rc.d/svc-wktbox-cdp-relay"
+test -f "$relay_service/type"
+test "$(cat "$relay_service/type")" = "longrun"
+test -f "$relay_service/dependencies.d/init-services"
+test -f \
+  "$project_root/images/webtop/s6-rc.d/user/contents.d/svc-wktbox-cdp-relay"
+for expected in \
+  "TCP-LISTEN:9223,bind=0.0.0.0,reuseaddr,fork" \
+  "TCP:127.0.0.1:9222"; do
+  grep -F -- "$expected" "$relay_service/run" >/dev/null
+done
+grep -Eq '^[[:space:]]+socat([[:space:]\\]|$)' \
+  "$project_root/images/webtop/Dockerfile"
 
 printf 'Webtop graphical Chromium tests passed\n'

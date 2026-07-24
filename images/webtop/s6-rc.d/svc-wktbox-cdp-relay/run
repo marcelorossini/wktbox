@@ -1,0 +1,5 @@
+#!/usr/bin/with-contenv bash
+
+exec socat \
+  TCP-LISTEN:9223,bind=0.0.0.0,reuseaddr,fork \
+  TCP:127.0.0.1:9222

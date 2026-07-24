@@ -4,7 +4,7 @@
 
 **Goal:** Keep the Webtop's graphical Chromium open, restart it after closure, and expose its CDP endpoint on a deterministic high loopback port for every box.
 
-**Architecture:** The Webtop image owns a Chromium wrapper plus an XFCE-autostarted session supervisor, so the controlled browser is the visible desktop browser and uses one persistent non-default profile. The external Compose publishes container port `9222` at port-block offset `+4`, while status output and health-aware readiness make the endpoint discoverable and reliable.
+**Architecture:** The Webtop image owns a Chromium wrapper plus an XFCE-autostarted session supervisor, so the controlled browser is the visible desktop browser and uses one persistent non-default profile. Chromium listens on loopback port `9222`; an s6-supervised `socat` relay exposes container port `9223`, which external Compose publishes at port-block offset `+4`. Status output and health-aware readiness make the endpoint discoverable and reliable.
 
 **Tech Stack:** Go 1.26, Docker Compose v2, LinuxServer Webtop/Ubuntu XFCE, Chromium CDP, Bash, XDG autostart, Go and shell E2E tests.
 
@@ -13,6 +13,7 @@
 - The browser is the graphical Chromium in the Webtop, not a separate headless instance.
 - Chromium starts with the XFCE session and is relaunched after the last window closes or the process crashes.
 - Container CDP port is exactly `9222`.
+- Container CDP relay port is exactly `9223`.
 - Host CDP port is exactly `ports.Block.Start + 4`.
 - Host publication binds only to `127.0.0.1`.
 - Chromium profile is `/config/.config/wktbox-chromium` and persists in `webtop-config`.
@@ -161,8 +162,8 @@ git commit -m "feat: expor porta CDP no status"
 **Interfaces:**
 - Consumes: `ports.Block.BrowserCDP() int` from Task 1
 - Produces: sandbox env key `PORT_BROWSER_CDP`
-- Produces: host mapping `127.0.0.1:${PORT_BROWSER_CDP}:9222`
-- Produces: Webtop health contract `curl ... http://127.0.0.1:9222/json/version`
+- Produces: host mapping `127.0.0.1:${PORT_BROWSER_CDP}:9223`
+- Produces: Webtop health contract `curl ... http://127.0.0.1:9223/json/version`
 - Produces: `compose.Status.Ready()` requiring healthy Webtop
 
 - [ ] **Step 1: Write failing render and validation tests**
@@ -173,12 +174,12 @@ In `TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts`, require:
 if !reflect.DeepEqual(webtop.Ports, []string{
 	"127.0.0.1:${PORT_HTTP}:61000",
 	"127.0.0.1:${PORT_HTTPS}:61001",
-	"127.0.0.1:${PORT_BROWSER_CDP}:9222",
+	"127.0.0.1:${PORT_BROWSER_CDP}:9223",
 }) {
 	t.Fatalf("webtop ports = %#v", webtop.Ports)
 }
 for _, required := range []string{
-	"curl --fail --silent --show-error http://127.0.0.1:9222/json/version",
+	"curl --fail --silent --show-error http://127.0.0.1:9223/json/version",
 	`PORT_BROWSER_CDP="23004"`,
 } {
 	if !strings.Contains(readFile(t, files.ComposePath)+readFile(t, files.SandboxEnvPath), required) {
@@ -262,11 +263,11 @@ Add to the Webtop service in `assets/sandbox.compose.yml`:
     ports:
       - 127.0.0.1:${PORT_HTTP}:61000
       - 127.0.0.1:${PORT_HTTPS}:61001
-      - 127.0.0.1:${PORT_BROWSER_CDP}:9222
+      - 127.0.0.1:${PORT_BROWSER_CDP}:9223
     healthcheck:
       test:
         - CMD-SHELL
-        - curl --fail --silent --show-error http://127.0.0.1:9222/json/version >/dev/null
+        - curl --fail --silent --show-error http://127.0.0.1:9223/json/version >/dev/null
       interval: 3s
       timeout: 3s
       retries: 30
@@ -317,6 +318,10 @@ git commit -m "feat: publicar CDP e exigir navegador saudavel"
 - Create: `images/webtop/wrapped-chromium`
 - Create: `images/webtop/chromium-supervisor`
 - Create: `images/webtop/wktbox-chromium.desktop`
+- Create: `images/webtop/s6-rc.d/svc-wktbox-cdp-relay/run`
+- Create: `images/webtop/s6-rc.d/svc-wktbox-cdp-relay/type`
+- Create: `images/webtop/s6-rc.d/svc-wktbox-cdp-relay/dependencies.d/init-services`
+- Create: `images/webtop/s6-rc.d/user/contents.d/svc-wktbox-cdp-relay`
 - Modify: `images/webtop/Dockerfile`
 - Create: `tests/images/chromium_test.sh`
 - Modify: `Makefile`
@@ -325,6 +330,7 @@ git commit -m "feat: publicar CDP e exigir navegador saudavel"
 - Produces: `/usr/local/bin/wrapped-chromium`
 - Produces: `/usr/local/bin/wktbox-chromium-supervisor`
 - Produces: `/etc/xdg/autostart/wktbox-chromium.desktop`
+- Produces: s6-supervised `0.0.0.0:9223 -> 127.0.0.1:9222` relay
 - Consumes: XFCE session environment, `/config`, container port `9222`
 - Test-only overrides: `WKTBOX_CHROMIUM_BIN`, `WKTBOX_CHROMIUM_PROFILE`,
   `WKTBOX_CHROMIUM_WRAPPER`, `WKTBOX_CHROMIUM_RESTART_DELAY`
@@ -336,7 +342,6 @@ that records every argument. Execute `images/webtop/wrapped-chromium
 https://example.test`, then require these exact arguments in the recording:
 
 ```text
---remote-debugging-address=0.0.0.0
 --remote-debugging-port=9222
 --user-data-dir=<temporary-profile>
 https://example.test
@@ -380,7 +385,6 @@ fi
 
 browser_args=(
   --password-store=basic
-  --remote-debugging-address=0.0.0.0
   --remote-debugging-port=9222
   "--user-data-dir=$profile"
 )
@@ -595,9 +599,9 @@ wait_for_cdp "$browser_url_b"
 Check Docker publication for each Webtop:
 
 ```bash
-test "$(docker port "wktbox-$id_a-webtop-1" 9222/tcp)" = \
+test "$(docker port "wktbox-$id_a-webtop-1" 9223/tcp)" = \
   "127.0.0.1:$browser_port_a"
-test "$(docker port "wktbox-$id_b-webtop-1" 9222/tcp)" = \
+test "$(docker port "wktbox-$id_b-webtop-1" 9223/tcp)" = \
   "127.0.0.1:$browser_port_b"
 ```
 

@@ -90,12 +90,12 @@ services:
     ports:
       - 127.0.0.1:${PORT_HTTP}:61000
       - 127.0.0.1:${PORT_HTTPS}:61001
-      - 127.0.0.1:${PORT_BROWSER_CDP}:9222
+      - 127.0.0.1:${PORT_BROWSER_CDP}:9223
     shm_size: ${SHM_SIZE}
     healthcheck:
       test:
         - CMD-SHELL
-        - curl --fail --silent --show-error http://127.0.0.1:9222/json/version >/dev/null
+        - curl --fail --silent --show-error http://127.0.0.1:9223/json/version >/dev/null
       interval: 3s
       timeout: 3s
       retries: 30

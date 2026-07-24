@@ -30,6 +30,7 @@ RUN apt-get update \
       curl \
       git \
       openssh-client \
+      socat \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
@@ -39,6 +40,10 @@ COPY --chmod=0755 images/webtop/entrypoint.sh /usr/local/bin/wktbox-entrypoint
 COPY --chmod=0755 images/webtop/wrapped-chromium /usr/local/bin/wrapped-chromium
 COPY --chmod=0755 images/webtop/chromium-supervisor /usr/local/bin/wktbox-chromium-supervisor
 COPY --chmod=0644 images/webtop/wktbox-chromium.desktop /etc/xdg/autostart/wktbox-chromium.desktop
+COPY --chmod=0755 images/webtop/s6-rc.d/svc-wktbox-cdp-relay/run /etc/s6-overlay/s6-rc.d/svc-wktbox-cdp-relay/run
+COPY --chmod=0644 images/webtop/s6-rc.d/svc-wktbox-cdp-relay/type /etc/s6-overlay/s6-rc.d/svc-wktbox-cdp-relay/type
+COPY --chmod=0644 images/webtop/s6-rc.d/svc-wktbox-cdp-relay/dependencies.d/init-services /etc/s6-overlay/s6-rc.d/svc-wktbox-cdp-relay/dependencies.d/init-services
+COPY --chmod=0644 images/webtop/s6-rc.d/user/contents.d/svc-wktbox-cdp-relay /etc/s6-overlay/s6-rc.d/user/contents.d/svc-wktbox-cdp-relay
 
 RUN docker --version \
     && docker compose version \
@@ -47,7 +52,9 @@ RUN docker --version \
 
 RUN test -x /usr/local/bin/wrapped-chromium \
     && test -x /usr/local/bin/wktbox-chromium-supervisor \
-    && test -r /etc/xdg/autostart/wktbox-chromium.desktop
+    && test -r /etc/xdg/autostart/wktbox-chromium.desktop \
+    && command -v socat \
+    && test -x /etc/s6-overlay/s6-rc.d/svc-wktbox-cdp-relay/run
 
 WORKDIR /workspace
 

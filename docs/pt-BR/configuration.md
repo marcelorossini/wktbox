@@ -86,7 +86,8 @@ publicado pelo Compose externo.
 O Chromium gráfico permanece aberto em toda box pronta. O XFCE inicia um
 supervisor da sessão que reabre o navegador quando ele termina. O perfil
 persistente fica em `/config/.config/wktbox-chromium`, e o CDP escuta na porta
-interna `9222`.
+de loopback `9222`. Um relay supervisionado pelo s6 escuta na porta interna
+`9223` e encaminha a publicação do host ao Chromium.
 
 A porta do host usa o offset `+4` do bloco de dez portas da box e é vinculada
 somente a `127.0.0.1`. Em um bloco iniciado em `23000`, o HTTP do Webtop usa

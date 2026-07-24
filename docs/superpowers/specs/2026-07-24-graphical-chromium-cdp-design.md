@@ -73,8 +73,12 @@ Browser CDP: http://localhost:23004
 
 ## Alocação e publicação da porta
 
-O Chromium escuta na porta fixa `9222` dentro do namespace do Webtop. O Compose
-externo publica essa porta somente em `127.0.0.1`.
+O Chromium escuta em `127.0.0.1:9222` dentro do namespace do Webtop. Como
+Chromium moderno mantém o CDP restrito ao loopback mesmo quando recebe uma
+flag de endereço remoto, um relay TCP supervisionado pelo s6 escuta em
+`0.0.0.0:9223` no mesmo namespace e encaminha bytes para
+`127.0.0.1:9222`. O Compose externo publica somente a porta do relay e somente
+em `127.0.0.1` no host.
 
 Cada box já reserva um bloco de dez portas altas. O CDP usará o offset `+4`:
 
@@ -95,21 +99,21 @@ O modelo `ports.Block` ganhará `BrowserCDP()`. A renderização fornecerá
 
 ```yaml
 ports:
-  - 127.0.0.1:${PORT_BROWSER_CDP}:9222
+  - 127.0.0.1:${PORT_BROWSER_CDP}:9223
 ```
 
 ## Inicialização e perfil do Chromium
 
-A imagem Webtop fornecerá três artefatos próprios:
+A imagem Webtop fornecerá os seguintes artefatos próprios:
 
 - um wrapper compatível com o wrapper atual da imagem LinuxServer;
 - um supervisor de sessão que relança o wrapper após o encerramento;
 - uma entrada XDG em `/etc/xdg/autostart`.
+- um serviço s6 que supervisiona o relay `socat` entre `9223` e `9222`.
 
 O wrapper sempre adicionará:
 
 ```text
---remote-debugging-address=0.0.0.0
 --remote-debugging-port=9222
 --user-data-dir=/config/.config/wktbox-chromium
 ```
@@ -132,9 +136,9 @@ processos órfãos.
 
 ## Prontidão e falhas
 
-O serviço `webtop` terá um healthcheck que consulta
-`http://127.0.0.1:9222/json/version`. A avaliação de prontidão do Wktbox exigirá
-o Webtop saudável, além dos serviços já exigidos.
+O serviço `webtop` terá um healthcheck que consulta o caminho completo pelo
+relay em `http://127.0.0.1:9223/json/version`. A avaliação de prontidão do
+Wktbox exigirá o Webtop saudável, além dos serviços já exigidos.
 
 Consequências:
 
@@ -155,10 +159,11 @@ CDP não possui autenticação e concede controle total sobre o navegador,
 incluindo páginas, cookies e armazenamento. A publicação no host será
 estritamente `127.0.0.1`; nunca `0.0.0.0`.
 
-Dentro do namespace Docker externo, o Chromium precisa aceitar conexões na
-interface do container para que a publicação funcione. Isso é compatível com o
-modelo do Wktbox como isolamento de conveniência, não como barreira para
-workloads hostis. A documentação de segurança explicará o impacto.
+Dentro do namespace Docker externo, o relay aceita conexões na interface do
+container para que a publicação funcione, enquanto o Chromium permanece no
+loopback. Isso é compatível com o modelo do Wktbox como isolamento de
+conveniência, não como barreira para workloads hostis. A documentação de
+segurança explicará o impacto.
 
 Nenhuma porta do daemon DinD ou socket Docker do host será adicionada.
 
@@ -184,7 +189,8 @@ incompatibilidade explícita em vez de retornar uma box falsamente pronta.
 - `ports.Block.BrowserCDP()` retorna `Start + 4`;
 - blocos menores que cinco portas são rejeitados;
 - o ambiente renderizado contém `PORT_BROWSER_CDP`;
-- o Compose externo publica `127.0.0.1:${PORT_BROWSER_CDP}:9222`;
+- o Compose externo publica `127.0.0.1:${PORT_BROWSER_CDP}:9223`;
+- o relay s6 encaminha `0.0.0.0:9223` para `127.0.0.1:9222`;
 - o Webtop contém o healthcheck de CDP;
 - status humano e JSON expõem a URL e a porta;
 - prontidão exige `webtop` saudável.
