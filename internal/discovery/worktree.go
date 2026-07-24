@@ -4,20 +4,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"wktbox/internal/process"
 )
 
-var ErrNotWorktree = errors.New("path is not inside a Git worktree")
+var (
+	ErrInvalidWorkspace = errors.New("invalid workspace path")
+	ErrNotWorktree      = errors.New("path is not inside a Git worktree")
+)
 
 type Worktree struct {
-	Path        string
-	CommonDir   string
-	GitDir      string
-	Branch      string
-	DisplayName string
+	Path          string
+	GitRoot       string
+	CommonDir     string
+	GitDir        string
+	Branch        string
+	DisplayName   string
+	GitProbeError string
+}
+
+func (worktree Worktree) HasGit() bool {
+	return strings.TrimSpace(worktree.GitRoot) != ""
+}
+
+func (worktree Worktree) IsGitRoot() bool {
+	return worktree.HasGit() &&
+		filepath.Clean(worktree.Path) == filepath.Clean(worktree.GitRoot)
 }
 
 func Discover(ctx context.Context, runner process.Runner, requestedPath string) (Worktree, error) {
@@ -26,37 +41,52 @@ func Discover(ctx context.Context, runner process.Runner, requestedPath string) 
 	}
 	absolutePath, err := filepath.Abs(requestedPath)
 	if err != nil {
-		return Worktree{}, fmt.Errorf("resolve worktree path: %w", err)
+		return Worktree{}, fmt.Errorf("%w: resolve workspace path: %v", ErrInvalidWorkspace, err)
 	}
-	absolutePath = filepath.Clean(absolutePath)
+	resolvedPath, err := filepath.EvalSymlinks(filepath.Clean(absolutePath))
+	if err != nil {
+		return Worktree{}, fmt.Errorf("%w: resolve workspace path %q: %v", ErrInvalidWorkspace, absolutePath, err)
+	}
+	info, err := os.Stat(resolvedPath)
+	if err != nil {
+		return Worktree{}, fmt.Errorf("%w: inspect workspace path %q: %v", ErrInvalidWorkspace, resolvedPath, err)
+	}
+	if !info.IsDir() {
+		return Worktree{}, fmt.Errorf("%w: workspace path %q is not a directory", ErrInvalidWorkspace, resolvedPath)
+	}
+	resolvedPath = filepath.Clean(resolvedPath)
+	workspace := Worktree{
+		Path:        resolvedPath,
+		DisplayName: filepath.Base(resolvedPath),
+	}
 
 	rootResult, err := runner.Run(
 		ctx,
 		"git",
 		"-C",
-		absolutePath,
+		resolvedPath,
 		"rev-parse",
 		"--show-toplevel",
 	)
 	if err != nil {
-		detail := strings.TrimSpace(rootResult.Stderr)
-		if detail == "" {
-			detail = err.Error()
-		}
-		return Worktree{}, fmt.Errorf("%w: %s", ErrNotWorktree, detail)
+		workspace.GitProbeError = probeDiagnostic(rootResult, err)
+		return workspace, nil
 	}
 	root := filepath.Clean(strings.TrimSpace(rootResult.Stdout))
 	if root == "." || root == "" {
-		return Worktree{}, fmt.Errorf("%w: Git returned an empty worktree path", ErrNotWorktree)
+		workspace.GitProbeError = "Git returned an empty worktree path"
+		return workspace, nil
 	}
 
 	commonDir, err := gitPath(ctx, runner, root, "--git-common-dir")
 	if err != nil {
-		return Worktree{}, err
+		workspace.GitProbeError = err.Error()
+		return workspace, nil
 	}
 	gitDir, err := gitPath(ctx, runner, root, "--git-dir")
 	if err != nil {
-		return Worktree{}, err
+		workspace.GitProbeError = err.Error()
+		return workspace, nil
 	}
 	branchResult, err := runner.Run(
 		ctx,
@@ -67,16 +97,15 @@ func Discover(ctx context.Context, runner process.Runner, requestedPath string) 
 		"--show-current",
 	)
 	if err != nil {
-		return Worktree{}, fmt.Errorf("discover Git branch: %w", err)
+		workspace.GitProbeError = fmt.Sprintf("discover Git branch: %v", err)
+		return workspace, nil
 	}
 
-	return Worktree{
-		Path:        root,
-		CommonDir:   commonDir,
-		GitDir:      gitDir,
-		Branch:      strings.TrimSpace(branchResult.Stdout),
-		DisplayName: filepath.Base(root),
-	}, nil
+	workspace.GitRoot = root
+	workspace.CommonDir = commonDir
+	workspace.GitDir = gitDir
+	workspace.Branch = strings.TrimSpace(branchResult.Stdout)
+	return workspace, nil
 }
 
 func gitPath(
@@ -104,4 +133,12 @@ func gitPath(
 		value = filepath.Join(worktree, value)
 	}
 	return filepath.Clean(value), nil
+}
+
+func probeDiagnostic(result process.Result, err error) string {
+	detail := strings.TrimSpace(result.Stderr)
+	if detail != "" {
+		return detail
+	}
+	return err.Error()
 }

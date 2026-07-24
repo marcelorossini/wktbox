@@ -24,12 +24,21 @@ type BoxIdentity struct {
 func ForWorktree(commonDir string, worktreePath string, platform Platform) BoxIdentity {
 	canonicalCommon := canonical(commonDir, platform)
 	canonicalWorktree := canonical(worktreePath, platform)
-	digest := sha256.Sum256([]byte(canonicalCommon + "\n" + canonicalWorktree))
+	return fromSeed(canonicalCommon+"\n"+canonicalWorktree, canonicalWorktree, platform)
+}
+
+func ForPath(workspacePath string, platform Platform) BoxIdentity {
+	canonicalWorkspace := canonical(workspacePath, platform)
+	return fromSeed("workspace-path\n"+canonicalWorkspace, canonicalWorkspace, platform)
+}
+
+func fromSeed(seed string, canonicalPath string, platform Platform) BoxIdentity {
+	digest := sha256.Sum256([]byte(seed))
 	id := hex.EncodeToString(digest[:])[:12]
 
-	displayName := filepath.Base(canonicalWorktree)
+	displayName := filepath.Base(canonicalPath)
 	if platform == Windows {
-		displayName = path.Base(canonicalWorktree)
+		displayName = path.Base(canonicalPath)
 	}
 
 	return BoxIdentity{
