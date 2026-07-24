@@ -17,6 +17,7 @@ O Wktbox será uma CLI multiplataforma que cria um ambiente de desenvolvimento i
 - execução de comandos dentro do ambiente;
 - suporte a testes E2E sem remapeamento das portas internas;
 - localhost automático no Webtop para toda porta TCP publicada no DinD;
+- conexões explícitas e persistentes entre duas ou mais boxes;
 - um gateway opcional para acessar serviços pelo navegador do host;
 - estado e ciclo de vida controlados pela CLI.
 
@@ -58,6 +59,25 @@ esse estado em `state.json`.
 As portas internas próprias do LinuxServer Webtop são 61000, 61001 e 61002. O
 host publica somente HTTP/HTTPS do Webtop e o gateway opcional; portas das
 aplicações continuam exclusivas ao DinD e não aparecem no host.
+
+### 1.2 Atualização implementada: conexões entre boxes
+
+`wktbox connect <box> <box> [mais...]` cria uma bridge rotulada no Docker do
+host e anexa os endpoints DinD e Webtop dos membros sem unir seus daemons,
+volumes, imagens ou redes internas. Cada DinD recebe o alias estável
+`<box-id>.wktbox`; workloads usam esse alias com a porta publicada à esquerda
+em `ports:`. `wktbox connections` mostra a topologia humana ou JSON e
+`wktbox disconnect` remove apenas a bridge compartilhada.
+
+O sidecar obrigatório `interconnect`, no namespace do DinD, encaminha DNS para
+o embedded DNS externo em `127.0.0.11:53`. DinD e sidecar descobrem
+dinamicamente o IPv4 da rota padrão privada da box; não dependem de
+`172.17.0.1`. O hostname externo do DinD também é único por box para que o nome
+TLS privado `docker` nunca fique ambíguo na bridge compartilhada.
+
+As conexões são opt-in e formam uma rede de desenvolvimento confiável entre os
+membros. Cada API DinD mantém autoridade TLS própria e o socket Docker do host
+continua ausente, mas listeners de peers ficam alcançáveis no nível de rede.
 
 ## 2. Problema
 
@@ -287,7 +307,15 @@ O Compose a seguir é uma referência conceitual. A CLI deverá incorporar um te
 services:
   docker:
     image: ${WKTBOX_DIND_IMAGE}
-    hostname: docker
+    hostname: wktbox-${WKTBOX_ID}-docker
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        dns_address="$$(ip -4 route get 192.0.2.1 |
+        sed -n 's/.* src \([^ ]*\).*/\1/p')";
+        test -n "$$dns_address";
+        exec /usr/local/bin/dockerd-entrypoint.sh --dns="$$dns_address"
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: /certs
@@ -306,6 +334,19 @@ services:
           DOCKER_TLS_VERIFY=1
           DOCKER_CERT_PATH=/certs/client
           docker info
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  interconnect:
+    image: ${WKTBOX_WEBTOP_IMAGE}
+    command: ["wktbox-loopback", "dns-serve"]
+    network_mode: service:docker
+    depends_on:
+      docker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wktbox-loopback dns-probe"]
       interval: 3s
       timeout: 3s
       retries: 30
@@ -385,7 +426,7 @@ volumes:
 O Webtop se conecta ao daemon interno por `tcp://docker:2376` usando os certificados gerados pelo DinD. A API do daemon:
 
 - não é publicada no host;
-- existe apenas na rede externa daquela box;
+- usa uma autoridade TLS exclusiva daquela box;
 - exige os certificados montados no Webtop;
 - não depende de GID do socket Docker.
 
