@@ -16,6 +16,7 @@ import (
 	"wktbox/internal/executor"
 	"wktbox/internal/loopback"
 	"wktbox/internal/ports"
+	"wktbox/internal/prune"
 	"wktbox/internal/state"
 )
 
@@ -31,6 +32,8 @@ type fakeService struct {
 	syncStatus loopback.Status
 	syncErr    error
 	childOut   string
+	pruneData  prune.Report
+	pruneErr   error
 }
 
 type fakeAgentManager struct {
@@ -108,6 +111,14 @@ func (fake *fakeService) Inspect(_ context.Context, _ app.Resolution) (state.Box
 func (fake *fakeService) List(context.Context) ([]state.BoxRecord, error) {
 	fake.calls = append(fake.calls, "List")
 	return fake.list, nil
+}
+
+func (fake *fakeService) Prune(
+	_ context.Context,
+	force bool,
+) (prune.Report, error) {
+	fake.calls = append(fake.calls, "Prune:"+boolString(force))
+	return fake.pruneData, fake.pruneErr
 }
 
 func (fake *fakeService) Run(
@@ -414,10 +425,74 @@ func TestRootHelpListsEveryMVPCommand(t *testing.T) {
 	for _, name := range []string{
 		"up", "run", "exec", "compose", "shell", "open", "list",
 		"status", "logs", "stop", "restart", "destroy", "doctor",
+		"prune",
 	} {
 		if !strings.Contains(help, name) {
 			t.Errorf("help does not list %q:\n%s", name, help)
 		}
+	}
+}
+
+func TestPruneDefaultsToDryRunAndExplainsForce(t *testing.T) {
+	fake := newFakeService()
+	fake.pruneData = testPruneReport()
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
+	root.SetArgs([]string{"prune"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, fake.calls, "Prune:false")
+	got := streams.Out.(*bytes.Buffer).String()
+	for _, want := range []string{
+		"feature-auth",
+		"/removed/feature-auth",
+		"--force",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prune output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPruneForceDelegatesDestruction(t *testing.T) {
+	fake := newFakeService()
+	fake.pruneData = testPruneReport()
+	root := cli.New(
+		cli.Dependencies{Service: fake},
+		testStreams(),
+	)
+	root.SetArgs([]string{"prune", "--force"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, fake.calls, "Prune:true")
+}
+
+func TestPruneJSONUsesPublicReport(t *testing.T) {
+	fake := newFakeService()
+	fake.pruneData = testPruneReport()
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
+	root.SetArgs([]string{"--json", "prune"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	var got prune.Report
+	if err := json.Unmarshal(
+		streams.Out.(*bytes.Buffer).Bytes(),
+		&got,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, fake.pruneData) {
+		t.Fatalf("report = %#v, want %#v", got, fake.pruneData)
 	}
 }
 
@@ -590,6 +665,23 @@ func testAgentReport() agentintegration.Report {
 		ExpectedDigest:   "sha256:expected",
 		ActualDigest:     "sha256:expected",
 	}}}
+}
+
+func testPruneReport() prune.Report {
+	candidate := prune.Candidate{
+		ID:       "a4f8c9137d2b",
+		Name:     "feature-auth",
+		Worktree: "/removed/feature-auth",
+	}
+	return prune.Report{
+		Candidates: []prune.Candidate{candidate},
+		Destroyed:  []prune.Candidate{},
+		Warnings: []prune.Warning{{
+			ID:      "bbbbbbbbbbbb",
+			Path:    "/private/worktree",
+			Message: "inspect recorded worktree: permission denied",
+		}},
+	}
 }
 
 func agentCall(operation string, options agentintegration.Options) string {

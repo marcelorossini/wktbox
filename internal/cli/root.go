@@ -16,6 +16,7 @@ import (
 	"wktbox/internal/executor"
 	"wktbox/internal/loopback"
 	"wktbox/internal/output"
+	"wktbox/internal/prune"
 	"wktbox/internal/sandbox"
 	"wktbox/internal/state"
 	"wktbox/internal/version"
@@ -44,6 +45,7 @@ type Service interface {
 	Ensure(context.Context, app.Resolution) (state.BoxRecord, error)
 	Inspect(context.Context, app.Resolution) (state.BoxRecord, error)
 	List(context.Context) ([]state.BoxRecord, error)
+	Prune(context.Context, bool) (prune.Report, error)
 	Run(context.Context, state.BoxRecord, []string, executor.Options) (int, error)
 	SyncLoopback(context.Context, state.BoxRecord) (loopback.Status, error)
 	Logs(context.Context, state.BoxRecord, string, bool, io.Writer, io.Writer) (int, error)
@@ -157,9 +159,36 @@ func New(dependencies Dependencies, streams Streams) *cobra.Command {
 		commands.restart(),
 		commands.destroy(),
 		commands.doctor(),
+		commands.prune(),
 		commands.agentCommands(),
 	)
 	return root
+}
+
+func (commands commandSet) prune() *cobra.Command {
+	var force bool
+	command := &cobra.Command{
+		Use:   "prune",
+		Short: "Find or destroy boxes for worktrees that no longer exist",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if commands.service == nil {
+				return errors.New("sandbox service is not configured")
+			}
+			report, err := commands.service.Prune(command.Context(), force)
+			if err != nil {
+				return err
+			}
+			return commands.renderer().PruneReport(report, force)
+		},
+	}
+	command.Flags().BoolVar(
+		&force,
+		"force",
+		false,
+		"destroy boxes whose recorded worktrees no longer exist",
+	)
+	return command
 }
 
 func (commands commandSet) agentCommands() *cobra.Command {

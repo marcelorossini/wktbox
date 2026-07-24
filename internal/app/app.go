@@ -26,6 +26,7 @@ import (
 	"wktbox/internal/output"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
+	"wktbox/internal/prune"
 	"wktbox/internal/sandbox"
 	"wktbox/internal/state"
 	"wktbox/internal/version"
@@ -291,6 +292,31 @@ func (application *App) List(ctx context.Context) ([]state.BoxRecord, error) {
 		return nil, errors.New("sandbox manager is not configured")
 	}
 	return application.manager.List(ctx)
+}
+
+func (application *App) Prune(
+	ctx context.Context,
+	force bool,
+) (prune.Report, error) {
+	boxes, err := application.List(ctx)
+	if err != nil {
+		return prune.Report{}, err
+	}
+	report := prune.Discover(boxes, os.Stat)
+	if !force {
+		return report, nil
+	}
+	for _, candidate := range report.Candidates {
+		if err := application.manager.Destroy(ctx, candidate.ID); err != nil {
+			return report, fmt.Errorf(
+				"destroy stale box %s: %w",
+				candidate.ID,
+				err,
+			)
+		}
+		report.Destroyed = append(report.Destroyed, candidate)
+	}
+	return report, nil
 }
 
 func (application *App) Run(

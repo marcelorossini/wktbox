@@ -3,6 +3,7 @@ package output_test
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"wktbox/internal/loopback"
 	"wktbox/internal/output"
 	"wktbox/internal/ports"
+	"wktbox/internal/prune"
 	"wktbox/internal/state"
 )
 
@@ -281,5 +283,96 @@ func TestHumanAgentReportIncludesPathsStateAndConflictRemediation(t *testing.T) 
 		if !strings.Contains(got, want) {
 			t.Fatalf("human report missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestPruneReportJSONUsesPublicSchema(t *testing.T) {
+	var stdout bytes.Buffer
+	renderer := output.New(output.Options{JSON: true, Out: &stdout})
+	report := prune.Report{
+		Candidates: []prune.Candidate{{
+			ID:       "aaaaaaaaaaaa",
+			Name:     "removed",
+			Worktree: "/removed/worktree",
+		}},
+		Destroyed: []prune.Candidate{},
+		Warnings: []prune.Warning{{
+			ID:      "bbbbbbbbbbbb",
+			Path:    "/private/worktree",
+			Message: "permission denied",
+		}},
+	}
+
+	if err := renderer.PruneReport(report, false); err != nil {
+		t.Fatal(err)
+	}
+
+	var got prune.Report
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, report) {
+		t.Fatalf("report = %#v, want %#v", got, report)
+	}
+}
+
+func TestHumanPruneDryRunListsCandidatesWarningsAndForceHint(t *testing.T) {
+	var stdout bytes.Buffer
+	renderer := output.New(output.Options{Out: &stdout})
+	report := prune.Report{
+		Candidates: []prune.Candidate{{
+			ID:       "aaaaaaaaaaaa",
+			Name:     "removed",
+			Worktree: "/removed/worktree",
+		}},
+		Destroyed: []prune.Candidate{},
+		Warnings: []prune.Warning{{
+			ID:      "bbbbbbbbbbbb",
+			Path:    "/private/worktree",
+			Message: "permission denied",
+		}},
+	}
+
+	if err := renderer.PruneReport(report, false); err != nil {
+		t.Fatal(err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"removed",
+		"aaaaaaaaaaaa",
+		"/removed/worktree",
+		"warning",
+		"permission denied",
+		"--force",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prune report missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestHumanForcedPruneListsDestroyedCandidates(t *testing.T) {
+	var stdout bytes.Buffer
+	renderer := output.New(output.Options{Out: &stdout})
+	candidate := prune.Candidate{
+		ID:       "aaaaaaaaaaaa",
+		Name:     "removed",
+		Worktree: "/removed/worktree",
+	}
+	report := prune.Report{
+		Candidates: []prune.Candidate{candidate},
+		Destroyed:  []prune.Candidate{candidate},
+	}
+
+	if err := renderer.PruneReport(report, true); err != nil {
+		t.Fatal(err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "Destroyed") ||
+		!strings.Contains(got, candidate.ID) ||
+		strings.Contains(got, "--force") {
+		t.Fatalf("forced prune report:\n%s", got)
 	}
 }

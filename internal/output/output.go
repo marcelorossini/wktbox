@@ -9,6 +9,7 @@ import (
 
 	"wktbox/internal/agentintegration"
 	"wktbox/internal/loopback"
+	"wktbox/internal/prune"
 	"wktbox/internal/state"
 )
 
@@ -167,6 +168,88 @@ func (renderer Renderer) AgentReport(report agentintegration.Report) error {
 			}
 		}
 		if _, err := fmt.Fprint(renderer.out, humanAgentStatus(status)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (renderer Renderer) PruneReport(report prune.Report, force bool) error {
+	if renderer.json {
+		return writeJSON(renderer.out, report)
+	}
+	if renderer.quiet {
+		return nil
+	}
+	if force {
+		if len(report.Destroyed) == 0 {
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"No stale boxes destroyed.",
+			); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintln(renderer.out, "Destroyed stale boxes:"); err != nil {
+				return err
+			}
+			if err := writeCandidates(renderer.out, report.Destroyed); err != nil {
+				return err
+			}
+		}
+	} else {
+		if len(report.Candidates) == 0 {
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"No stale boxes found.",
+			); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"Stale boxes found (dry run):",
+			); err != nil {
+				return err
+			}
+			if err := writeCandidates(renderer.out, report.Candidates); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(
+				renderer.out,
+				"Run \"wktbox prune --force\" to destroy only these boxes.",
+			); err != nil {
+				return err
+			}
+		}
+	}
+	for _, warning := range report.Warnings {
+		if _, err := fmt.Fprintf(
+			renderer.out,
+			"warning: box %s path %q: %s\n",
+			warning.ID,
+			warning.Path,
+			warning.Message,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCandidates(destination io.Writer, candidates []prune.Candidate) error {
+	for _, candidate := range candidates {
+		name := candidate.Name
+		if name == "" {
+			name = candidate.ID
+		}
+		if _, err := fmt.Fprintf(
+			destination,
+			"  - %s (%s): %s\n",
+			name,
+			candidate.ID,
+			candidate.Worktree,
+		); err != nil {
 			return err
 		}
 	}
