@@ -21,8 +21,8 @@ func TestSkillFrontmatterUsesOnlyPortableFields(t *testing.T) {
 	}
 	want := map[string]string{
 		"name": "wktbox-isolated-development",
-		"description": "Use Wktbox for isolated Docker development in a " +
-			"current checkout or linked Git worktree.",
+		"description": "Use when isolated Docker development is requested " +
+			"for any existing project directory.",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("frontmatter = %#v, want %#v", got, want)
@@ -37,18 +37,18 @@ func TestSkillContainsOrderedAutonomousWorkflow(t *testing.T) {
 		"stay on the host",
 		"explicit isolation signals",
 		"Ask the user when isolation intent is unclear",
-		"current checkout by default",
+		"current directory by default",
 		"linked worktree only",
-		"wktbox doctor --path <checkout>",
-		"Stop on doctor failure",
-		"wktbox run --path <checkout> --",
-		"wktbox compose --path <checkout> --",
-		"wktbox open --path <checkout>",
+		"wktbox doctor --path <workspace>",
+		"Stop on a blocking doctor failure",
+		"wktbox run --path <workspace> --",
+		"wktbox compose --path <workspace> --",
+		"wktbox open --path <workspace>",
 		"Keep current-checkout boxes until explicit user cleanup",
 		"Keep linked-worktree boxes through pull-request review",
 		"confirming merge into `main`",
-		"wktbox destroy --path <checkout> --force",
-		"git worktree remove <checkout>",
+		"wktbox destroy --path <workspace> --force",
+		"git worktree remove <workspace>",
 		"Use `wktbox prune` only for discovery",
 		"`wktbox prune --force` only when deletion is explicitly authorized",
 	}
@@ -75,13 +75,15 @@ func TestSkillMakesWorktreesOptionalAndForbidsDoctorFallback(t *testing.T) {
 		"do not fall back to host execution",
 		"Opening a pull request is not cleanup authorization",
 		"Never run the Wktbox repository inside Wktbox",
+		"The selected directory does not need to be a Git repository",
+		"Never run git init only to satisfy Wktbox",
 	} {
 		if !strings.Contains(body, phrase) {
 			t.Errorf("skill body missing policy %q", phrase)
 		}
 	}
-	doctor := strings.Index(body, "wktbox doctor --path <checkout>")
-	initialization := strings.Index(body, "wktbox run --path <checkout> --")
+	doctor := strings.Index(body, "wktbox doctor --path <workspace>")
+	initialization := strings.Index(body, "wktbox run --path <workspace> --")
 	if doctor < 0 || initialization < 0 || doctor >= initialization {
 		t.Fatalf(
 			"doctor must precede initialization: doctor=%d run=%d",
@@ -89,8 +91,8 @@ func TestSkillMakesWorktreesOptionalAndForbidsDoctorFallback(t *testing.T) {
 			initialization,
 		)
 	}
-	destroy := strings.Index(body, "wktbox destroy --path <checkout> --force")
-	remove := strings.Index(body, "git worktree remove <checkout>")
+	destroy := strings.Index(body, "wktbox destroy --path <workspace> --force")
+	remove := strings.Index(body, "git worktree remove <workspace>")
 	if destroy < 0 || remove < 0 || destroy >= remove {
 		t.Fatalf(
 			"destroy must precede worktree removal: destroy=%d remove=%d",

@@ -1,18 +1,26 @@
 # Current-checkout quickstart
 
-The current checkout is Wktbox's default and primary path. A linked worktree is
-optional; use one only when you also want branch-level checkout isolation.
+The current directory is Wktbox's default and primary path. It does not need to
+be a Git repository. A linked worktree is optional; use one only when you also
+want branch-level checkout isolation.
 
 ## 1. Check prerequisites
 
-From the repository you want to develop:
+From the project directory you want to develop:
 
 ```bash
 wktbox doctor
 ```
 
+To select a different existing directory exactly:
+
+```bash
+wktbox --path /absolute/project/path doctor
+```
+
 Fix every failed required check before continuing. Wktbox does not silently
-fall back to running project commands on the host.
+fall back to running project commands on the host. A warning that Git metadata
+is absent is not a failure and requires no `git init`.
 
 ## 2. Start the box
 
@@ -20,7 +28,7 @@ fall back to running project commands on the host.
 wktbox up
 ```
 
-The checkout is available as `/workspace` in Webtop and the isolated DinD
+The selected directory is available as `/workspace` in Webtop and the isolated DinD
 daemon. Repeating `up` reconciles generated configuration and starts an
 existing stopped box.
 

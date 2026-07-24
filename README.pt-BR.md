@@ -3,19 +3,19 @@
 Esta é a documentação em português. Consulte a
 [documentação canônica em inglês](README.md).
 
-Wktbox é uma CLI em Go que cria uma box de desenvolvimento por Git worktree.
-Cada box usa um daemon Docker-in-Docker (DinD) exclusivo, preserva as portas
-internas do projeto e oferece Webtop, execução de comandos, localhost automático
-para serviços publicados e gateway HTTP opcional.
+Wktbox é uma CLI em Go que cria uma box de desenvolvimento para qualquer
+diretório existente. Git é opcional. Cada box usa um daemon Docker-in-Docker
+(DinD) exclusivo, preserva as portas internas do projeto e oferece Webtop,
+execução de comandos, localhost automático para serviços publicados e gateway
+HTTP opcional.
 
 O mecanismo fornece **isolamento operacional** entre ambientes de
-desenvolvimento. O DinD é privilegiado e a worktree é montada com escrita; não
+desenvolvimento. O DinD é privilegiado e o workspace é montado com escrita; não
 use o Wktbox como barreira para código hostil. Consulte
 [Segurança](docs/pt-BR/security.md).
 
 ## Requisitos
 
-- Git;
 - Docker Engine ou Docker Desktop em modo de containers Linux;
 - Docker CLI com Compose v2;
 - permissão para executar containers privilegiados;
@@ -24,7 +24,7 @@ use o Wktbox como barreira para código hostil. Consulte
 Antes da primeira box:
 
 ```bash
-wktbox doctor --path "/caminho/da/worktree"
+wktbox doctor --path "/caminho/do/projeto"
 ```
 
 ## Compilação local
@@ -46,7 +46,7 @@ O binário fica em `bin/wktbox`. Para gerar os seis artefatos de release:
 
 ## Início rápido
 
-Dentro de uma worktree:
+Dentro de qualquer diretório de projeto existente, mesmo sem Git:
 
 ```bash
 wktbox up
@@ -56,7 +56,7 @@ wktbox open
 ```
 
 `run` cria ou inicia a box antes do comando. `exec` exige que ela já esteja
-pronta. A worktree aparece em `/workspace` tanto no Webtop quanto no DinD; o
+pronta. O diretório aparece em `/workspace` tanto no Webtop quanto no DinD; o
 Compose original roda sem reescrita de portas.
 
 ## Localhost automático dentro do Webtop

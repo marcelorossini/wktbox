@@ -148,6 +148,48 @@ func TestDocsPresentCurrentCheckoutBeforeOptionalWorktrees(t *testing.T) {
 	}
 }
 
+func TestDocsAcceptAnyExistingDirectoryWithoutGit(t *testing.T) {
+	required := map[string][]string{
+		"README.md": {
+			"any existing directory",
+			"Git is optional",
+			"`--path` selects that exact directory",
+		},
+		"docs/quickstart.md": {
+			"does not need to be a Git repository",
+			"wktbox --path /absolute/project/path doctor",
+		},
+		"docs/worktrees.md": {
+			"path-based identity",
+			"Git-root identities remain compatible",
+		},
+		"docs/agents.md": {
+			"Never run `git init` only to satisfy Wktbox",
+		},
+		"docs/troubleshooting.md": {
+			"not a Git repository",
+			"valid Wktbox workspace",
+		},
+		"docs/configuration.md": {
+			"`--path` selects the exact workspace directory",
+		},
+		"docs/pt-BR/configuration.md": {
+			"`--path` seleciona exatamente o diretório do workspace",
+		},
+	}
+	for path, phrases := range required {
+		body := strings.Join(strings.Fields(readProjectFile(t, path)), " ")
+		for _, phrase := range phrases {
+			if !strings.Contains(body, phrase) {
+				t.Errorf("%s missing %q", path, phrase)
+			}
+		}
+	}
+	if strings.Contains(readProjectFile(t, "README.md"), "Requirements: Git,") {
+		t.Error("README still presents Git as a global requirement")
+	}
+}
+
 func TestDocsCoverInstallUpdatePathAndRemovalOnUnixAndWindows(t *testing.T) {
 	body := readProjectFile(t, "docs/installation.md")
 	for _, expected := range []string{

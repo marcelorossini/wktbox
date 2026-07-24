@@ -1,7 +1,8 @@
 # Wktbox
 
-Wktbox provides isolated Docker development for the current checkout or an
-optional linked Git worktree, without rewriting the project's Compose ports.
+Wktbox provides isolated Docker development for any existing directory,
+without rewriting the project's Compose ports. Git is optional; a normal
+checkout or linked Git worktree adds metadata but is not a prerequisite.
 
 [![CI](https://github.com/marcelorossini/wktbox/actions/workflows/ci.yml/badge.svg)](https://github.com/marcelorossini/wktbox/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/marcelorossini/wktbox)](https://github.com/marcelorossini/wktbox/releases/latest)
@@ -10,7 +11,7 @@ optional linked Git worktree, without rewriting the project's Compose ports.
 
 Wktbox runs a small Go CLI on the host. Each box has its own privileged
 Docker-in-Docker daemon, Webtop desktop, Docker resources, and optional HTTP
-gateway. The checkout is mounted at `/workspace`; services published by the
+gateway. The selected directory is mounted at `/workspace`; services published by the
 project appear on the same loopback ports inside Webtop. Boxes therefore keep
 containers, networks, volumes, images, caches, and port namespaces independent.
 
@@ -36,12 +37,13 @@ replace the executable atomically. See [Installation](docs/installation.md) for
 download-inspect-run commands, fixed versions, PATH setup, updates, manual
 verification, and removal.
 
-Requirements: Git, Docker Engine or Docker Desktop using Linux containers,
-Docker Compose v2, and permission to run privileged containers.
+Requirements: Docker Engine or Docker Desktop using Linux containers, Docker
+Compose v2, and permission to run privileged containers.
 
 ## Current checkout
 
-The current checkout is the primary workflow. A linked worktree is optional.
+The current directory is the primary workflow. It does not need to be a Git
+repository, and a linked worktree is optional.
 
 ```bash
 wktbox doctor
@@ -49,9 +51,17 @@ wktbox up
 wktbox run -- go test ./...
 ```
 
-`doctor` verifies Git, Docker, Compose, bind mounts, free ports and disk,
-privileged DinD, internal TLS, and the selected Git bridge. `run` creates or
-starts the box when necessary, executes the command with intact argument
+Pass another existing directory when needed:
+
+```bash
+wktbox --path /absolute/project/path doctor
+wktbox --path /absolute/project/path run -- go test ./...
+```
+
+`--path` selects that exact directory, even when it is below a detected Git
+root. `doctor` verifies Docker, Compose, bind mounts, free ports and disk,
+privileged DinD, internal TLS, and any applicable Git metadata. `run` creates
+or starts the box when necessary, executes the command with intact argument
 boundaries, and returns the child exit code.
 
 For project Compose operations and the browser desktop:
@@ -116,11 +126,12 @@ wktbox agents install --target all
 wktbox agents status --target all
 ```
 
-The skill selects the current checkout by default, runs `doctor` before first
-initialization, refuses host fallback on prerequisite failure, preserves boxes
-through their lifecycle, and prevents Wktbox from running itself inside nested
-DinD. Installation changes only the documented skill directory and one marked
-instruction block. See [Coding-agent integration](docs/agents.md).
+The skill selects the current directory by default, never initializes Git just
+for Wktbox, runs `doctor` before first initialization, refuses host fallback on
+blocking prerequisite failure, preserves boxes through their lifecycle, and
+prevents Wktbox from running itself inside nested DinD. Installation changes
+only the documented skill directory and one marked instruction block. See
+[Coding-agent integration](docs/agents.md).
 
 ## Connect boxes explicitly
 
@@ -157,7 +168,7 @@ and the trust boundary.
 - `wktbox restart` restarts the external infrastructure.
 - `wktbox destroy` removes the selected box; automation should use `--force`.
 - `wktbox doctor` checks host and runtime prerequisites.
-- `wktbox prune` reports boxes whose recorded checkout no longer exists;
+- `wktbox prune` reports boxes whose recorded workspace no longer exists;
   `--force` destroys only those candidates.
 - `wktbox agents` installs, inspects, or removes agent integrations.
 
@@ -168,7 +179,7 @@ repeatable `--env`, `--json`, `--quiet`, `--verbose`, and `--no-color`.
 ## Security boundary
 
 Wktbox provides operational isolation for trusted development code. It is not a
-security boundary: DinD is privileged and the checkout is writable from the
+security boundary: DinD is privileged and the workspace is writable from the
 box. Do not use it for hostile workloads or as a virtual-machine substitute.
 Read the [security model](docs/security.md) before adopting it.
 

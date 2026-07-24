@@ -1,7 +1,12 @@
 # Optional worktrees and lifecycle
 
-Wktbox works in the current checkout. A linked worktree is optional and useful
-when you want a second checkout for a branch at the same time.
+Wktbox works in any existing directory. Git is optional. A linked worktree is
+useful only when you want a second checkout for a branch at the same time.
+
+Plain directories and selected subdirectories inside repositories use a stable
+path-based identity, so selecting two different paths creates two boxes.
+Git-root identities remain compatible with earlier Wktbox releases and linked
+worktrees keep their existing identity behavior.
 
 ## Create a branch checkout
 
@@ -15,10 +20,9 @@ wktbox run --path ../feature-example -- go test ./...
 Paths may be absolute or relative to the command's current directory. Quote
 paths containing spaces.
 
-Every checkout receives a stable identity derived from its Git common
-directory and normalized checkout path. Consequently, two worktrees may run
-the same Compose project and publish the same internal ports without sharing a
-daemon, network, image cache, volumes, or Webtop loopback.
+Every selected path receives a stable identity. Consequently, two workspaces
+may run the same Compose project and publish the same internal ports without
+sharing a daemon, network, image cache, volumes, or Webtop loopback.
 
 ## Reuse during review
 

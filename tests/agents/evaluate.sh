@@ -67,6 +67,7 @@ printf 'agent evaluation results: %s\n' "$run_root"
 scenarios=(
   explicit-e2e
   current-checkout
+  plain-directory
   ambiguous-isolation
   doctor-failure
   merged-worktree-cleanup
@@ -125,14 +126,16 @@ prepare_repository() {
   local scenario="$2"
   local repository="$sample_root/repository"
   mkdir -p "$repository"
-  /usr/bin/git -C "$repository" init -q -b main
-  /usr/bin/git -C "$repository" config user.name "Wktbox Evaluator"
-  /usr/bin/git -C "$repository" config user.email "evaluator@example.invalid"
   printf '# Evaluation fixture\n' >"$repository/README.md"
   printf 'integration:\n\t@printf "fixture integration\\n"\n' \
     >"$repository/Makefile"
-  /usr/bin/git -C "$repository" add README.md Makefile
-  /usr/bin/git -C "$repository" commit -q -m "fixture"
+  if [[ "$scenario" != "plain-directory" ]]; then
+    /usr/bin/git -C "$repository" init -q -b main
+    /usr/bin/git -C "$repository" config user.name "Wktbox Evaluator"
+    /usr/bin/git -C "$repository" config user.email "evaluator@example.invalid"
+    /usr/bin/git -C "$repository" add README.md Makefile
+    /usr/bin/git -C "$repository" commit -q -m "fixture"
+  fi
 
   if [[ "$scenario" == "merged-worktree-cleanup" ]]; then
     /usr/bin/git -C "$repository" worktree add -q \
@@ -172,9 +175,8 @@ install_evaluation_skill() {
   cat >"$instructions" <<'EOF'
 <!-- wktbox-agent:start -->
 When development needs Docker isolation, independent Compose ports, browser or
-integration testing, or a linked-worktree environment, use the
-`wktbox-isolated-development` skill. It also works in the current checkout;
-creating a worktree is optional.
+integration testing, use the `wktbox-isolated-development` skill. It works in
+any existing project directory; Git and linked worktrees are optional.
 <!-- wktbox-agent:end -->
 EOF
 }
@@ -415,6 +417,7 @@ if mode == "installed":
     strict = {
         "explicit-e2e",
         "current-checkout",
+        "plain-directory",
         "doctor-failure",
         "merged-worktree-cleanup",
         "self-host-guard",

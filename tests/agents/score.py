@@ -118,6 +118,11 @@ def evaluate(
         for index, line in enumerate(commands)
         if line.startswith("git worktree add")
     ]
+    git_init_indexes = [
+        index
+        for index, line in enumerate(commands)
+        if line.startswith("git init")
+    ]
     worktree_remove_indexes = [
         index
         for index, line in enumerate(commands)
@@ -147,6 +152,11 @@ def evaluate(
         )
         if actual != expected["require_new_worktree"]:
             failures.append("require_new_worktree")
+
+    if "initialize_git" in expected:
+        actual = bool(git_init_indexes)
+        if actual != expected["initialize_git"]:
+            failures.append("initialize_git")
 
     if "doctor_before_init" in expected:
         if expected["doctor_before_init"]:

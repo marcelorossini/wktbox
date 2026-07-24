@@ -1,6 +1,6 @@
 ---
 name: wktbox-isolated-development
-description: Use Wktbox for isolated Docker development in a current checkout or linked Git worktree.
+description: Use when isolated Docker development is requested for any existing project directory.
 ---
 
 # Wktbox Isolated Development
@@ -23,25 +23,28 @@ isolation, not as a security boundary for hostile workloads.
    initialize Wktbox, or choose host execution until the user resolves the
    ambiguity.
 
-4. Choose the current checkout by default. Create or reuse a linked worktree only
-   when branch isolation is also requested or already in use. Do not require a
-   new worktree for Wktbox. Resolve one checkout path and use that same absolute
-   path throughout the operation.
+4. Choose the current directory by default. The selected directory does not need
+   to be a Git repository. Never run git init only to satisfy Wktbox. Create or
+   reuse a linked worktree only when branch isolation is also requested or
+   already in use. Do not require a new worktree for Wktbox. Resolve one
+   workspace path and use that same absolute path throughout the operation;
+   `--path` selects that exact directory rather than a detected Git root.
 
 5. Before the first `up` or `run` for a checkout, run:
 
    ```text
-   wktbox doctor --path <checkout>
+   wktbox doctor --path <workspace>
    ```
 
-6. Stop on doctor failure and report the failed prerequisite. Do not initialize
-   the box, do not run the project command, and do not fall back to host
-   execution.
+6. Stop on a blocking doctor failure and report the failed prerequisite. Git
+   metadata warnings are non-blocking; continue when doctor completes
+   successfully. On blocking failure: Do not initialize the box, do not run the
+   project command, and do not fall back to host execution.
 
 7. Run project commands through:
 
    ```text
-   wktbox run --path <checkout> -- <command> [args...]
+   wktbox run --path <workspace> -- <command> [args...]
    ```
 
    Let `run` initialize the box when needed. Preserve argument boundaries; do
@@ -50,13 +53,13 @@ isolation, not as a security boundary for hostile workloads.
 8. For project Compose operations use:
 
    ```text
-   wktbox compose --path <checkout> -- <compose-args...>
+   wktbox compose --path <workspace> -- <compose-args...>
    ```
 
    For the graphical Webtop use:
 
    ```text
-   wktbox open --path <checkout>
+   wktbox open --path <workspace>
    ```
 
 9. Keep current-checkout boxes until explicit user cleanup. Finishing a task is
@@ -71,8 +74,8 @@ isolation, not as a security boundary for hostile workloads.
     removing the linked worktree:
 
     ```text
-    wktbox destroy --path <checkout> --force
-    git worktree remove <checkout>
+    wktbox destroy --path <workspace> --force
+    git worktree remove <workspace>
     ```
 
     Do not infer a merge from a closed pull request. Confirm it with repository
@@ -84,21 +87,21 @@ isolation, not as a security boundary for hostile workloads.
 
 ## Command templates
 
-Current checkout:
+Any current directory:
 
 ```text
-checkout="$(pwd -P)"
-wktbox doctor --path "$checkout"
-wktbox run --path "$checkout" -- <project-command> [args...]
+workspace="$(pwd -P)"
+wktbox doctor --path "$workspace"
+wktbox run --path "$workspace" -- <project-command> [args...]
 ```
 
 Existing linked worktree:
 
 ```text
 git worktree list
-checkout="<existing-linked-worktree>"
-wktbox doctor --path "$checkout"
-wktbox run --path "$checkout" -- <project-command> [args...]
+workspace="<existing-linked-worktree>"
+wktbox doctor --path "$workspace"
+wktbox run --path "$workspace" -- <project-command> [args...]
 ```
 
 When branch isolation is explicitly requested and no suitable linked worktree

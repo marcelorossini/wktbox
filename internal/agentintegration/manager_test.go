@@ -16,9 +16,8 @@ import (
 
 const managedBlock = `<!-- wktbox-agent:start -->
 When development needs Docker isolation, independent Compose ports, browser or
-integration testing, or a linked-worktree environment, use the
-` + "`wktbox-isolated-development`" + ` skill. It also works in the current checkout;
-creating a worktree is optional.
+integration testing, use the ` + "`wktbox-isolated-development`" + ` skill. It
+works in any existing project directory; Git and linked worktrees are optional.
 <!-- wktbox-agent:end -->`
 
 func TestCodexPathsUseDefaultsAndCodexHomeOverride(t *testing.T) {
@@ -277,8 +276,8 @@ func TestInstallUsesBundledAssetsByDefault(t *testing.T) {
 		filepath.Join(report.Targets[0].SkillPath, "SKILL.md"),
 	)
 	if !strings.Contains(skill, "wktbox-isolated-development") ||
-		!strings.Contains(skill, "wktbox doctor --path <checkout>") ||
-		!strings.Contains(skill, "wktbox run --path <checkout> --") {
+		!strings.Contains(skill, "wktbox doctor --path <workspace>") ||
+		!strings.Contains(skill, "wktbox run --path <workspace> --") {
 		t.Fatalf("skill = %q", skill)
 	}
 	if report.Targets[0].ActualDigest != report.Targets[0].ExpectedDigest {

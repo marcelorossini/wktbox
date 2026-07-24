@@ -7,7 +7,7 @@ defaults < .wktbox.yml < .wktbox.local.yml < WKTBOX_* < flags
 ```
 
 An explicit `--config` replaces both automatically discovered files. Relative
-paths resolve from the selected checkout. Keep `.wktbox.local.yml` untracked.
+paths resolve from the selected workspace. Keep `.wktbox.local.yml` untracked.
 
 ## Complete example
 
@@ -78,10 +78,11 @@ SSH server.
 
 `git.mode` accepts:
 
-- `host` (default): Git remains on the host; only the checkout is mounted.
+- `host` (default): Git remains on the host; only the workspace is mounted.
 - `mounted`: writable shared Git metadata is mounted into Webtop and validated.
-  It is not mounted into DinD. Use this only with trusted repositories and
-  hooks.
+  It is not mounted into DinD. This mode is skipped with a doctor warning when
+  the workspace has no Git metadata or is below a Git root. Use it only with
+  trusted repositories and hooks.
 
 `resources` is reserved. Schema v1 parses `cpus`, `memory`, and `pids` but does
 not enforce them; they are not security controls.
@@ -132,7 +133,8 @@ persistent resources managed with `wktbox connect`, `wktbox connections`, and
 | `WKTBOX_STATE_HOME` | state, generated files, and lock root |
 
 `--env-file` and `--env-target` override corresponding variables. `--path`
-selects a checkout. Repeatable `--env KEY=VALUE` affects only the child process
+selects the exact workspace directory; Wktbox does not replace it with a
+detected Git root. Repeatable `--env KEY=VALUE` affects only the child process
 and is redacted from structured diagnostics.
 
 Resolution is declarative on each invocation. A prior `--env-file` does not

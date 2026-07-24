@@ -3,7 +3,7 @@
 Start with:
 
 ```bash
-wktbox doctor --path <checkout>
+wktbox doctor --path <workspace>
 ```
 
 Do not bypass a failed required check by silently running the project command
@@ -35,6 +35,20 @@ docker info
 On Docker Desktop, select Linux containers and share the local drive containing
 the checkout. Wktbox does not support a remote daemon that cannot bind-mount
 the same host paths.
+
+## The directory is not a Git repository
+
+A directory that is not a Git repository is still a valid Wktbox workspace.
+Use it directly:
+
+```bash
+wktbox --path /absolute/project/path doctor
+wktbox --path /absolute/project/path run -- make integration
+```
+
+The workspace check reports a non-blocking warning and `git.mode: mounted` is
+disabled because no Git metadata exists. Do not run `git init` merely to make
+Wktbox accept the directory.
 
 ## Privileged DinD is denied
 

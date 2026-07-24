@@ -91,6 +91,20 @@ class ScorerTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertIn("require_new_worktree", report["failures"])
 
+    def test_rejects_git_initialization_for_plain_directory(self):
+        self.write_result()
+        self.commands.write_text("git init\n", encoding="utf-8")
+
+        report = evaluate(
+            "plain-directory",
+            self.result,
+            self.commands,
+            {"initialize_git": False},
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("initialize_git", report["failures"])
+
     def test_requires_clarification_without_commands(self):
         self.write_result(
             action="clarification",

@@ -17,9 +17,8 @@ const SkillName = "wktbox-isolated-development"
 
 const ManagedInstructionsBlock = `<!-- wktbox-agent:start -->
 When development needs Docker isolation, independent Compose ports, browser or
-integration testing, or a linked-worktree environment, use the
-` + "`wktbox-isolated-development`" + ` skill. It also works in the current checkout;
-creating a worktree is optional.
+integration testing, use the ` + "`wktbox-isolated-development`" + ` skill. It
+works in any existing project directory; Git and linked worktrees are optional.
 <!-- wktbox-agent:end -->`
 
 var ErrConflict = errors.New(

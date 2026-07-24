@@ -9,7 +9,7 @@ defaults < .wktbox.yml < .wktbox.local.yml < WKTBOX_* < flags
 ```
 
 Um `--config` explícito substitui os dois arquivos automáticos. Caminhos
-relativos são resolvidos a partir da worktree. `.wktbox.local.yml` deve ficar no
+relativos são resolvidos a partir do workspace. `.wktbox.local.yml` deve ficar no
 `.gitignore`.
 
 ## Exemplo
@@ -105,11 +105,13 @@ wktbox --json status
 
 `git.mode` aceita:
 
-- `host` (default): operações Git permanecem no host; a box recebe apenas a
-  worktree.
+- `host` (default): operações Git permanecem no host; a box recebe apenas o
+  workspace.
 - `mounted`: monta os metadados comuns da linked worktree no Webtop com escrita
   e valida `git status`, `git diff` e `git rev-parse`. Não monta metadados no
-  DinD. Use somente após validar o host e os hooks do repositório.
+  DinD. O modo é ignorado com um aviso do doctor quando o workspace não possui
+  Git ou está abaixo da raiz Git. Use somente após validar o host e os hooks do
+  repositório.
 
 `resources` (`cpus`, `memory`, `pids`) é reservado no schema v1. Os valores são
 lidos, mas ainda não impõem limites; não os trate como controle de segurança.
@@ -139,14 +141,15 @@ Variáveis implementadas:
 | `WKTBOX_STATE_HOME` | diretório do cache, locks e arquivos externos |
 
 As flags `--env-file` e `--env-target` vencem as variáveis correspondentes.
-`--config` escolhe um arquivo alternativo. `--path` escolhe a worktree.
+`--config` escolhe um arquivo alternativo. `--path` seleciona exatamente o
+diretório do workspace; uma raiz Git detectada não substitui esse caminho.
 `--env KEY=VALUE` não altera a configuração persistente: só é repassado ao
 comando filho.
 
 A resolução é declarativa e ocorre em toda invocação. Um `--env-file` usado
 anteriormente não vira default persistente: repita a flag ao reconciliar a box
 ou registre `environment.file` em `.wktbox.local.yml`. Sem flag, variável,
-configuração ou `.env` na worktree, o resultado intencional é nenhum project
+configuração ou `.env` no workspace, o resultado intencional é nenhum project
 env.
 
 O flag `--profile` existe para compatibilidade futura, mas qualquer valor

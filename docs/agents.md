@@ -1,7 +1,7 @@
 # Coding-agent integration
 
 Wktbox bundles the `wktbox-isolated-development` skill for Codex and Claude. It
-teaches agents when to select isolation, how to preserve the checkout
+teaches agents when to select isolation, how to preserve the workspace
 lifecycle, and when to stop.
 
 ## Install
@@ -98,13 +98,18 @@ The workflow:
 
 1. keeps Wktbox development itself on the host;
 2. uses explicit isolation intent or asks for clarification;
-3. defaults to the current checkout and makes worktrees optional;
+3. defaults to the current directory, accepts paths without Git, and makes
+   worktrees optional;
 4. runs `wktbox doctor` before first initialization;
-5. stops on prerequisite failure rather than falling back to the host;
-6. executes project commands through `wktbox run`;
-7. preserves current-checkout boxes until explicit cleanup;
-8. preserves linked worktrees through pull-request review; and
-9. destroys a merged linked-worktree box before removing the checkout.
+5. treats optional Git warnings as non-blocking;
+6. stops on a blocking prerequisite failure rather than falling back to the
+   host;
+7. never initializes Git merely to make a directory acceptable. Never run
+   `git init` only to satisfy Wktbox;
+8. executes project commands through `wktbox run`;
+9. preserves current-directory boxes until explicit cleanup;
+10. preserves linked worktrees through pull-request review; and
+11. destroys a merged linked-worktree box before removing the checkout.
 
 See [Worktrees and lifecycle](worktrees.md) and
 [Security model](security.md).
