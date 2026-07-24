@@ -121,7 +121,9 @@ func TestRenderIncludesInterconnectDNSWithoutHostSocket(t *testing.T) {
 		t.Fatalf("docker hostname = %q", dockerService.Hostname)
 	}
 	for _, want := range []string{
-		`command: ["--dns=172.17.0.1"]`,
+		"ip -4 route get 192.0.2.1",
+		"/usr/local/bin/dockerd-entrypoint.sh",
+		`--dns="$$dns_address"`,
 		"interconnect:",
 		"network_mode: service:docker",
 		`command: ["wktbox-loopback", "dns-serve"]`,
@@ -130,6 +132,9 @@ func TestRenderIncludesInterconnectDNSWithoutHostSocket(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("compose missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "172.17.0.1") {
+		t.Fatal("compose assumes Docker's default bridge address")
 	}
 	if strings.Contains(body, "/var/run/docker.sock") {
 		t.Fatal("host Docker socket leaked into interconnect")

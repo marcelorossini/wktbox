@@ -2,7 +2,14 @@ services:
   docker:
     image: ${WKTBOX_DIND_IMAGE}
     hostname: wktbox-${WKTBOX_ID}-docker
-    command: ["--dns=172.17.0.1"]
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        dns_address="$$(ip -4 route get 192.0.2.1 |
+        sed -n 's/.* src \([^ ]*\).*/\1/p')";
+        test -n "$$dns_address";
+        exec /usr/local/bin/dockerd-entrypoint.sh --dns="$$dns_address"
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: /certs

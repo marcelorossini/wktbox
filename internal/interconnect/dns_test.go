@@ -64,6 +64,16 @@ func TestProbeDNSValidatesTransactionResponse(t *testing.T) {
 	}
 }
 
+func TestLocalAddressForRouteUsesSelectedInterfaceAndPort(t *testing.T) {
+	got, err := interconnect.LocalAddressForRoute("127.0.0.1:9", 53)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "127.0.0.1:53" {
+		t.Fatalf("address = %q", got)
+	}
+}
+
 func TestServeDNSStopsAfterCancellation(t *testing.T) {
 	upstream := startDNSFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())

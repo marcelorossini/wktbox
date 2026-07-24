@@ -607,8 +607,8 @@ rtk git commit -m "feat: expor conexoes e topologia na cli"
 **Interfaces:**
 - Produces: `interconnect.ServeDNS(context.Context, DNSOptions) error`
 - Produces: `wktbox-loopback dns-serve` and `wktbox-loopback dns-probe`
-- Consumes: listener `172.17.0.1:53` and upstream Docker DNS
-  `127.0.0.11:53`
+- Consumes: the address selected by the box's default route on port `53` and
+  upstream Docker DNS `127.0.0.11:53`
 
 - [ ] **Step 1: Write failing UDP/TCP forwarding and Compose tests**
 
@@ -635,7 +635,8 @@ func TestRenderIncludesInterconnectDNSWithoutHostSocket(t *testing.T) {
 	}
 	body := readFile(t, files.ComposePath)
 	for _, want := range []string{
-		`command: ["--dns=172.17.0.1"]`,
+		`ip -4 route get 192.0.2.1`,
+		`/usr/local/bin/dockerd-entrypoint.sh`,
 		`interconnect:`,
 		`network_mode: service:docker`,
 		`wktbox-loopback dns-serve`,
@@ -688,9 +689,10 @@ wktbox-loopback dns-serve
 wktbox-loopback dns-probe
 ```
 
-Default `dns-serve` to `172.17.0.1:53 -> 127.0.0.11:53`. The probe sends a
-minimal A query for `localhost.` and accepts any well-formed response with the
-same transaction ID.
+Default `dns-serve` to the private IP selected by the box's default route on
+port `53`, forwarding to `127.0.0.11:53`. Do not assume a fixed inner bridge
+subnet. The probe sends a minimal A query for `localhost.` and accepts any
+well-formed response with the same transaction ID.
 
 Add the `interconnect` Compose service sharing the `docker` namespace and make
 box readiness require it to be healthy. Update `ListManaged` health recovery

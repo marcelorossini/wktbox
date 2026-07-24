@@ -19,8 +19,9 @@ import (
 const (
 	controlSocketPath = "/run/wktbox-loopback/control.sock"
 	statusFilePath    = "/run/wktbox-loopback/status.json"
-	dnsListenAddress  = "172.17.0.1:53"
+	dnsRouteTarget    = "192.0.2.1:53"
 	dnsUpstream       = "127.0.0.11:53"
+	dnsPort           = 53
 )
 
 type dependencies struct {
@@ -135,15 +136,29 @@ func defaultDependencies() dependencies {
 }
 
 func runDNSSidecar(ctx context.Context) error {
+	listenAddress, err := interconnect.LocalAddressForRoute(
+		dnsRouteTarget,
+		dnsPort,
+	)
+	if err != nil {
+		return err
+	}
 	return interconnect.ServeDNS(ctx, interconnect.DNSOptions{
-		ListenAddress:   dnsListenAddress,
+		ListenAddress:   listenAddress,
 		UpstreamAddress: dnsUpstream,
 		Timeout:         3 * time.Second,
 	})
 }
 
 func probeDNS(ctx context.Context) error {
-	return interconnect.ProbeDNS(ctx, dnsListenAddress)
+	serverAddress, err := interconnect.LocalAddressForRoute(
+		dnsRouteTarget,
+		dnsPort,
+	)
+	if err != nil {
+		return err
+	}
+	return interconnect.ProbeDNS(ctx, serverAddress)
 }
 
 func runSidecar(ctx context.Context) error {

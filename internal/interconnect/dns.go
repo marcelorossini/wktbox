@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -17,6 +18,25 @@ type DNSOptions struct {
 	ListenAddress   string
 	UpstreamAddress string
 	Timeout         time.Duration
+}
+
+func LocalAddressForRoute(destination string, port int) (string, error) {
+	if destination == "" {
+		return "", errors.New("route destination is required")
+	}
+	if port < 1 || port > 65535 {
+		return "", errors.New("route address port is invalid")
+	}
+	connection, err := net.Dial("udp", destination)
+	if err != nil {
+		return "", fmt.Errorf("resolve local route address: %w", err)
+	}
+	defer connection.Close()
+	local, ok := connection.LocalAddr().(*net.UDPAddr)
+	if !ok || local.IP == nil {
+		return "", errors.New("resolve local route address: unexpected UDP address")
+	}
+	return net.JoinHostPort(local.IP.String(), strconv.Itoa(port)), nil
 }
 
 func ServeDNS(ctx context.Context, options DNSOptions) error {
