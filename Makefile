@@ -49,6 +49,7 @@ images:
 	docker build -t wktbox/gateway:dev images/gateway
 
 images-test:
+	bash tests/images/chromium_test.sh
 	bash tests/images/labels_test.sh
 
 install-test:

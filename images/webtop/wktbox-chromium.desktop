@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Wktbox Chromium
+Comment=Graphical Chromium with Chrome DevTools Protocol
+Exec=/usr/local/bin/wktbox-chromium-supervisor
+OnlyShowIn=XFCE;
+X-GNOME-Autostart-enabled=true
+Terminal=false
+StartupNotify=false

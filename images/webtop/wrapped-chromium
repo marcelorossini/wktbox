@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+browser_bin="${WKTBOX_CHROMIUM_BIN:-/usr/bin/chromium}"
+profile="${WKTBOX_CHROMIUM_PROFILE:-/config/.config/wktbox-chromium}"
+
+mkdir -p "$profile"
+if ! pgrep -x chromium >/dev/null 2>&1; then
+  rm -f "$profile"/Singleton*
+fi
+
+browser_args=(
+  --password-store=basic
+  --remote-debugging-address=0.0.0.0
+  --remote-debugging-port=9222
+  "--user-data-dir=$profile"
+)
+if ! grep -Eq '^Seccomp:[[:space:]]*0$' /proc/1/status; then
+  browser_args+=(--no-sandbox --test-type)
+fi
+
+exec "$browser_bin" "${browser_args[@]}" "$@"

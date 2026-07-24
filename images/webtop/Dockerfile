@@ -36,11 +36,18 @@ COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
 COPY --from=loopback-build /out/wktbox-loopback /usr/local/bin/wktbox-loopback
 COPY --chmod=0755 images/webtop/entrypoint.sh /usr/local/bin/wktbox-entrypoint
+COPY --chmod=0755 images/webtop/wrapped-chromium /usr/local/bin/wrapped-chromium
+COPY --chmod=0755 images/webtop/chromium-supervisor /usr/local/bin/wktbox-chromium-supervisor
+COPY --chmod=0644 images/webtop/wktbox-chromium.desktop /etc/xdg/autostart/wktbox-chromium.desktop
 
 RUN docker --version \
     && docker compose version \
     && docker buildx version \
     && wktbox-loopback --help
+
+RUN test -x /usr/local/bin/wrapped-chromium \
+    && test -x /usr/local/bin/wktbox-chromium-supervisor \
+    && test -r /etc/xdg/autostart/wktbox-chromium.desktop
 
 WORKDIR /workspace
 

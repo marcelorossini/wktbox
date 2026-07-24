@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -u
+
+wrapper="${WKTBOX_CHROMIUM_WRAPPER:-/usr/local/bin/wrapped-chromium}"
+restart_delay="${WKTBOX_CHROMIUM_RESTART_DELAY:-2}"
+child_pid=""
+
+terminate() {
+  if [[ -n "$child_pid" ]] && kill -0 "$child_pid" >/dev/null 2>&1; then
+    kill "$child_pid" >/dev/null 2>&1 || true
+    wait "$child_pid" >/dev/null 2>&1 || true
+  fi
+  exit 0
+}
+trap terminate TERM INT HUP
+
+while true; do
+  "$wrapper" &
+  child_pid="$!"
+  wait "$child_pid" >/dev/null 2>&1 || true
+  child_pid=""
+
+  sleep "$restart_delay" &
+  child_pid="$!"
+  wait "$child_pid" >/dev/null 2>&1 || true
+  child_pid=""
+done
