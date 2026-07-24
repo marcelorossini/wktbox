@@ -76,6 +76,18 @@ wins.
 SSH enablement is reserved and rejected because Wktbox does not configure an
 SSH server.
 
+### Graphical Chromium and CDP
+
+The graphical Chromium is always running in every ready Webtop. XFCE starts a
+session supervisor that reopens the browser when it exits. Chromium uses the
+persistent profile `/config/.config/wktbox-chromium` and listens for CDP on
+container port `9222`.
+
+The host port uses offset `+4` of the box's ten-port block and binds only to
+`127.0.0.1`. For a block starting at `23000`, Webtop HTTP is `23000` and
+Browser CDP is `23004`. Use `urls.browserCdp` or `ports.browserCdp` from
+`wktbox --json status` instead of deriving the port in integrations.
+
 `git.mode` accepts:
 
 - `host` (default): Git remains on the host; only the workspace is mounted.

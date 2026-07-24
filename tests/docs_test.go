@@ -63,6 +63,47 @@ func TestDocsExplainCrossBoxConnectionsAndSecurityBoundary(t *testing.T) {
 	}
 }
 
+func TestDocsExplainBrowserCDPDiscoveryAndSecurity(t *testing.T) {
+	required := map[string][]string{
+		"README.md": {
+			"Browser CDP",
+			"browserCdp",
+			"23004",
+		},
+		"docs/configuration.md": {
+			"9222",
+			"offset `+4`",
+			"always running",
+		},
+		"docs/security.md": {
+			"CDP",
+			"cookies",
+			"127.0.0.1",
+		},
+		"README.pt-BR.md": {
+			"CDP do navegador",
+			"browserCdp",
+		},
+		"docs/pt-BR/configuration.md": {
+			"9222",
+			"offset `+4`",
+		},
+		"docs/pt-BR/security.md": {
+			"CDP",
+			"cookies",
+			"127.0.0.1",
+		},
+	}
+	for path, phrases := range required {
+		body := strings.Join(strings.Fields(readProjectFile(t, path)), " ")
+		for _, phrase := range phrases {
+			if !strings.Contains(body, phrase) {
+				t.Errorf("%s missing %q", path, phrase)
+			}
+		}
+	}
+}
+
 func TestDocsUseEnglishAsCanonicalLanguage(t *testing.T) {
 	readme := readProjectFile(t, "README.md")
 	for _, expected := range []string{

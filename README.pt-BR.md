@@ -91,6 +91,34 @@ pelo próprio Webtop aparece como `conflict` sem derrubar outras rotas. UDP é
 reportado como aviso e não é encaminhado; o proxy automático é TCP e preserva
 HTTP, HTTPS, WebSocket, hot reload e protocolos como PostgreSQL.
 
+## CDP do navegador gráfico
+
+Toda box pronta mantém aberto o Chromium gráfico do Webtop e publica o Chrome
+DevTools Protocol em uma porta alta exclusiva no loopback do host. Se o
+navegador for fechado, o supervisor da sessão o abre novamente com o mesmo
+perfil persistente.
+
+Consulte o endpoint pelo contrato JSON:
+
+```bash
+wktbox --json status
+# urls.browserCdp: http://localhost:23004
+# ports.browserCdp: 23004
+```
+
+Um bloco iniciado em `23000` usa `23004` para o CDP do navegador; as próximas
+boxes usam `23014`, `23024` e assim por diante. Um cliente compatível pode usar
+a URL informada:
+
+```bash
+npx -y chrome-devtools-mcp@latest \
+  --browser-url=http://localhost:23004
+```
+
+A publicação é restrita a `127.0.0.1`, mas o CDP não possui autenticação e
+controla todo o perfil do navegador. Consulte o
+[modelo de segurança](docs/pt-BR/security.md).
+
 Para montar um arquivo externo como `/workspace/.env`, somente leitura:
 
 ```bash
