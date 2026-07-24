@@ -4,9 +4,11 @@ import (
 	"errors"
 	"os"
 
+	"wktbox/internal/agentintegration"
 	"wktbox/internal/app"
 	"wktbox/internal/cli"
 	"wktbox/internal/output"
+	"wktbox/internal/version"
 )
 
 func main() {
@@ -30,11 +32,21 @@ func main() {
 		_ = renderer.Error("initialization_error", err.Error())
 		os.Exit(1)
 	}
-	os.Exit(run(application, streams, os.Args[1:]))
+	agents := agentintegration.NewManager(agentintegration.Dependencies{
+		Version: version.String(),
+	})
+	os.Exit(run(cli.Dependencies{
+		Service: application,
+		Agents:  agents,
+	}, streams, os.Args[1:]))
 }
 
-func run(service cli.Service, streams cli.Streams, arguments []string) int {
-	root := cli.New(service, streams)
+func run(
+	dependencies cli.Dependencies,
+	streams cli.Streams,
+	arguments []string,
+) int {
+	root := cli.New(dependencies, streams)
 	root.SetArgs(arguments)
 	err := root.Execute()
 	if err == nil {

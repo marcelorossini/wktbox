@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"wktbox/internal/agentintegration"
 	"wktbox/internal/app"
 	"wktbox/internal/discovery"
 	"wktbox/internal/executor"
@@ -53,6 +54,26 @@ type Service interface {
 	Doctor(context.Context, app.Request) (any, error)
 }
 
+type AgentManager interface {
+	Install(
+		context.Context,
+		agentintegration.Options,
+	) (agentintegration.Report, error)
+	Status(
+		context.Context,
+		agentintegration.Options,
+	) (agentintegration.Report, error)
+	Uninstall(
+		context.Context,
+		agentintegration.Options,
+	) (agentintegration.Report, error)
+}
+
+type Dependencies struct {
+	Service Service
+	Agents  AgentManager
+}
+
 type flags struct {
 	path        string
 	configPath  string
@@ -68,11 +89,12 @@ type flags struct {
 
 type commandSet struct {
 	service Service
+	agents  AgentManager
 	streams Streams
 	flags   *flags
 }
 
-func New(service Service, streams Streams) *cobra.Command {
+func New(dependencies Dependencies, streams Streams) *cobra.Command {
 	if streams.In == nil {
 		streams.In = strings.NewReader("")
 	}
@@ -84,7 +106,8 @@ func New(service Service, streams Streams) *cobra.Command {
 	}
 	options := &flags{}
 	commands := commandSet{
-		service: service,
+		service: dependencies.Service,
+		agents:  dependencies.Agents,
 		streams: streams,
 		flags:   options,
 	}
@@ -134,8 +157,149 @@ func New(service Service, streams Streams) *cobra.Command {
 		commands.restart(),
 		commands.destroy(),
 		commands.doctor(),
+		commands.agentCommands(),
 	)
 	return root
+}
+
+func (commands commandSet) agentCommands() *cobra.Command {
+	agents := &cobra.Command{
+		Use:   "agents",
+		Short: "Manage Wktbox skills for coding agents",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return command.Help()
+		},
+	}
+	agents.AddCommand(
+		commands.agentInstall(),
+		commands.agentStatus(),
+		commands.agentUninstall(),
+	)
+	return agents
+}
+
+func (commands commandSet) agentInstall() *cobra.Command {
+	return commands.agentMutation(
+		"install",
+		"Install or update the Wktbox agent skill",
+		func(
+			ctx context.Context,
+			options agentintegration.Options,
+		) (agentintegration.Report, error) {
+			return commands.agents.Install(ctx, options)
+		},
+	)
+}
+
+func (commands commandSet) agentStatus() *cobra.Command {
+	var target string
+	command := &cobra.Command{
+		Use:   "status",
+		Short: "Inspect Wktbox agent skill installations",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			options, err := agentOptions(target, false, false)
+			if err != nil {
+				return err
+			}
+			if commands.agents == nil {
+				return errors.New("agent integration manager is not configured")
+			}
+			report, err := commands.agents.Status(command.Context(), options)
+			if err != nil {
+				return err
+			}
+			return commands.renderer().AgentReport(report)
+		},
+	}
+	command.Flags().StringVar(
+		&target,
+		"target",
+		string(agentintegration.TargetAll),
+		"agent target: all, codex, or claude",
+	)
+	return command
+}
+
+type agentMutation func(
+	context.Context,
+	agentintegration.Options,
+) (agentintegration.Report, error)
+
+func (commands commandSet) agentMutation(
+	use string,
+	short string,
+	mutate agentMutation,
+) *cobra.Command {
+	var target string
+	var dryRun bool
+	var force bool
+	command := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			options, err := agentOptions(target, dryRun, force)
+			if err != nil {
+				return err
+			}
+			if commands.agents == nil {
+				return errors.New("agent integration manager is not configured")
+			}
+			report, err := mutate(command.Context(), options)
+			if err != nil {
+				return err
+			}
+			return commands.renderer().AgentReport(report)
+		},
+	}
+	flags := command.Flags()
+	flags.StringVar(
+		&target,
+		"target",
+		string(agentintegration.TargetAll),
+		"agent target: all, codex, or claude",
+	)
+	flags.BoolVar(&dryRun, "dry-run", false, "show changes without writing files")
+	flags.BoolVar(&force, "force", false, "replace a locally modified managed skill")
+	return command
+}
+
+func (commands commandSet) agentUninstall() *cobra.Command {
+	return commands.agentMutation(
+		"uninstall",
+		"Remove the Wktbox agent skill and managed instructions",
+		func(
+			ctx context.Context,
+			options agentintegration.Options,
+		) (agentintegration.Report, error) {
+			return commands.agents.Uninstall(ctx, options)
+		},
+	)
+}
+
+func agentOptions(
+	target string,
+	dryRun bool,
+	force bool,
+) (agentintegration.Options, error) {
+	parsed := agentintegration.Target(target)
+	switch parsed {
+	case agentintegration.TargetAll,
+		agentintegration.TargetCodex,
+		agentintegration.TargetClaude:
+	default:
+		return agentintegration.Options{}, fmt.Errorf(
+			"invalid agent target %q; expected all, codex, or claude",
+			target,
+		)
+	}
+	return agentintegration.Options{
+		Target: parsed,
+		DryRun: dryRun,
+		Force:  force,
+	}, nil
 }
 
 func (commands commandSet) up() *cobra.Command {
@@ -546,6 +710,8 @@ func ErrorCode(err error) string {
 	switch {
 	case errors.As(err, &exitError):
 		return "child_exit"
+	case errors.Is(err, agentintegration.ErrConflict):
+		return "agent_conflict"
 	case errors.Is(err, ErrForceRequired):
 		return "confirmation_required"
 	case errors.Is(err, sandbox.ErrBoxNotFound):

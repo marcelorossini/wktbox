@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"wktbox/internal/agentintegration"
 	"wktbox/internal/loopback"
 	"wktbox/internal/state"
 )
@@ -150,6 +151,53 @@ func (renderer Renderer) LoopbackSummary(status loopback.Status) error {
 	}
 	_, err := fmt.Fprint(renderer.err, humanLoopback(status, true))
 	return err
+}
+
+func (renderer Renderer) AgentReport(report agentintegration.Report) error {
+	if renderer.json {
+		return writeJSON(renderer.out, report)
+	}
+	if renderer.quiet {
+		return nil
+	}
+	for index, status := range report.Targets {
+		if index > 0 {
+			if _, err := fmt.Fprintln(renderer.out); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprint(renderer.out, humanAgentStatus(status)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func humanAgentStatus(status agentintegration.TargetStatus) string {
+	var result strings.Builder
+	state := "not installed"
+	if status.Installed {
+		state = "installed"
+	}
+	fmt.Fprintf(&result, "Agent %s: %s\n", status.Target, state)
+	if status.Version != "" {
+		fmt.Fprintf(&result, "Version:      %s\n", status.Version)
+	}
+	fmt.Fprintf(&result, "Skill:        %s\n", status.SkillPath)
+	fmt.Fprintf(&result, "Instructions: %s\n", status.InstructionsPath)
+	fmt.Fprintf(&result, "Managed block: %t\n", status.ManagedBlock)
+	if status.Changed {
+		result.WriteString("Changes:      required\n")
+	}
+	if status.Conflict {
+		result.WriteString("conflict: installed skill has local modifications\n")
+		fmt.Fprintf(
+			&result,
+			"Remediation: wktbox agents install --target %s --force\n",
+			status.Target,
+		)
+	}
+	return result.String()
 }
 
 func WebtopURL(box state.BoxRecord) string {

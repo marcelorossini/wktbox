@@ -3,12 +3,14 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
 
+	"wktbox/internal/agentintegration"
 	"wktbox/internal/app"
 	"wktbox/internal/cli"
 	"wktbox/internal/executor"
@@ -29,6 +31,36 @@ type fakeService struct {
 	syncStatus loopback.Status
 	syncErr    error
 	childOut   string
+}
+
+type fakeAgentManager struct {
+	calls  []string
+	report agentintegration.Report
+	err    error
+}
+
+func (fake *fakeAgentManager) Install(
+	_ context.Context,
+	options agentintegration.Options,
+) (agentintegration.Report, error) {
+	fake.calls = append(fake.calls, agentCall("install", options))
+	return fake.report, fake.err
+}
+
+func (fake *fakeAgentManager) Status(
+	_ context.Context,
+	options agentintegration.Options,
+) (agentintegration.Report, error) {
+	fake.calls = append(fake.calls, agentCall("status", options))
+	return fake.report, fake.err
+}
+
+func (fake *fakeAgentManager) Uninstall(
+	_ context.Context,
+	options agentintegration.Options,
+) (agentintegration.Report, error) {
+	fake.calls = append(fake.calls, agentCall("uninstall", options))
+	return fake.report, fake.err
 }
 
 func newFakeService() *fakeService {
@@ -140,7 +172,7 @@ func (fake *fakeService) Doctor(_ context.Context, request app.Request) (any, er
 
 func TestRunEnsuresBoxThenPassesChildArgsAndEnvironment(t *testing.T) {
 	fake := newFakeService()
-	root := cli.New(fake, testStreams())
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
 	root.SetArgs([]string{
 		"--path", "/repo",
 		"--env", "TOKEN=value with spaces",
@@ -163,7 +195,7 @@ func TestRunEnsuresBoxThenPassesChildArgsAndEnvironment(t *testing.T) {
 func TestExecStoppedBoxReturnsActionableError(t *testing.T) {
 	fake := newFakeService()
 	fake.status = state.Stopped
-	root := cli.New(fake, testStreams())
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
 	root.SetArgs([]string{"exec", "--", "pwd"})
 
 	err := root.Execute()
@@ -178,7 +210,7 @@ func TestExecStoppedBoxReturnsActionableError(t *testing.T) {
 
 func TestComposePrefixesDockerComposeAndEnsuresBox(t *testing.T) {
 	fake := newFakeService()
-	root := cli.New(fake, testStreams())
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
 	root.SetArgs([]string{"compose", "--", "up", "--build", "-d"})
 
 	if err := root.Execute(); err != nil {
@@ -205,7 +237,7 @@ func TestRunSyncsLoopbackAfterChildAndPreservesStdout(t *testing.T) {
 		State:    loopback.RouteListening,
 	}}
 	streams := testStreams()
-	root := cli.New(fake, streams)
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
 	root.SetArgs([]string{"run", "--", "printf", "child-output"})
 
 	if err := root.Execute(); err != nil {
@@ -225,7 +257,7 @@ func TestRunSyncsLoopbackAfterChildAndPreservesStdout(t *testing.T) {
 
 func TestExecDoesNotSyncLoopback(t *testing.T) {
 	fake := newFakeService()
-	root := cli.New(fake, testStreams())
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
 	root.SetArgs([]string{"exec", "--", "true"})
 
 	if err := root.Execute(); err != nil {
@@ -243,7 +275,7 @@ func TestExecDoesNotSyncLoopback(t *testing.T) {
 func TestFailedChildDoesNotSyncOrReplaceItsExitCode(t *testing.T) {
 	fake := newFakeService()
 	fake.runCode = 23
-	root := cli.New(fake, testStreams())
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
 	root.SetArgs([]string{"compose", "--", "up", "-d"})
 
 	err := root.Execute()
@@ -267,7 +299,7 @@ func TestQuietSuppressesLoopbackSummaryOnly(t *testing.T) {
 		State: loopback.RouteListening,
 	}}
 	streams := testStreams()
-	root := cli.New(fake, streams)
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
 	root.SetArgs([]string{"--quiet", "run", "--", "true"})
 
 	if err := root.Execute(); err != nil {
@@ -283,7 +315,7 @@ func TestQuietSuppressesLoopbackSummaryOnly(t *testing.T) {
 
 func TestUpDoesNotExecuteAChildCommand(t *testing.T) {
 	fake := newFakeService()
-	root := cli.New(fake, testStreams())
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
 	root.SetArgs([]string{"up"})
 
 	if err := root.Execute(); err != nil {
@@ -297,7 +329,7 @@ func TestDestroyRequiresForceWithoutTerminal(t *testing.T) {
 	fake := newFakeService()
 	streams := testStreams()
 	streams.Terminal = false
-	root := cli.New(fake, streams)
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
 	root.SetArgs([]string{"destroy"})
 
 	err := root.Execute()
@@ -312,7 +344,7 @@ func TestDestroyForceSkipsPrompt(t *testing.T) {
 	fake := newFakeService()
 	streams := testStreams()
 	streams.Terminal = false
-	root := cli.New(fake, streams)
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
 	root.SetArgs([]string{"destroy", "--force"})
 
 	if err := root.Execute(); err != nil {
@@ -327,7 +359,7 @@ func TestDestroyInteractiveRequiresAffirmativeConfirmation(t *testing.T) {
 	streams := testStreams()
 	streams.In = strings.NewReader("yes\n")
 	streams.Terminal = true
-	root := cli.New(fake, streams)
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
 	root.SetArgs([]string{"destroy"})
 
 	if err := root.Execute(); err != nil {
@@ -341,7 +373,7 @@ func TestLogsPreservesServiceFollowAndOutput(t *testing.T) {
 	fake := newFakeService()
 	fake.logOutput = "docker | ready\n"
 	streams := testStreams()
-	root := cli.New(fake, streams)
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
 	root.SetArgs([]string{"logs", "docker", "--follow"})
 
 	if err := root.Execute(); err != nil {
@@ -357,7 +389,7 @@ func TestLogsPreservesServiceFollowAndOutput(t *testing.T) {
 func TestChildExitCodeIsReturnedWithoutWrappingAsRuntimeFailure(t *testing.T) {
 	fake := newFakeService()
 	fake.runCode = 42
-	root := cli.New(fake, testStreams())
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
 	root.SetArgs([]string{"run", "--", "false"})
 
 	err := root.Execute()
@@ -371,7 +403,7 @@ func TestChildExitCodeIsReturnedWithoutWrappingAsRuntimeFailure(t *testing.T) {
 func TestRootHelpListsEveryMVPCommand(t *testing.T) {
 	fake := newFakeService()
 	streams := testStreams()
-	root := cli.New(fake, streams)
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
 	root.SetArgs([]string{"--help"})
 
 	if err := root.Execute(); err != nil {
@@ -389,6 +421,154 @@ func TestRootHelpListsEveryMVPCommand(t *testing.T) {
 	}
 }
 
+func TestAgentsHelpListsInstallStatusAndUninstall(t *testing.T) {
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{}, streams)
+	root.SetArgs([]string{"agents", "--help"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	help := streams.Out.(*bytes.Buffer).String()
+	for _, command := range []string{"install", "status", "uninstall"} {
+		if !strings.Contains(help, command) {
+			t.Errorf("agents help missing %q:\n%s", command, help)
+		}
+	}
+}
+
+func TestAgentsInstallDefaultsToAll(t *testing.T) {
+	agents := &fakeAgentManager{report: testAgentReport()}
+	root := cli.New(cli.Dependencies{Agents: agents}, testStreams())
+	root.SetArgs([]string{"agents", "install"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, agents.calls, "install:all:dry=false:force=false")
+}
+
+func TestAgentsAcceptEachConcreteTarget(t *testing.T) {
+	for _, target := range []string{"codex", "claude", "all"} {
+		t.Run(target, func(t *testing.T) {
+			agents := &fakeAgentManager{report: testAgentReport()}
+			root := cli.New(cli.Dependencies{Agents: agents}, testStreams())
+			root.SetArgs([]string{
+				"agents", "status", "--target", target,
+			})
+
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+
+			assertCalls(
+				t,
+				agents.calls,
+				"status:"+target+":dry=false:force=false",
+			)
+		})
+	}
+}
+
+func TestAgentsRejectInvalidTargetWithoutCallingManager(t *testing.T) {
+	agents := &fakeAgentManager{report: testAgentReport()}
+	root := cli.New(cli.Dependencies{Agents: agents}, testStreams())
+	root.SetArgs([]string{"agents", "status", "--target", "copilot"})
+
+	err := root.Execute()
+
+	if err == nil || !strings.Contains(err.Error(), "target") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(agents.calls) != 0 {
+		t.Fatalf("calls = %#v", agents.calls)
+	}
+}
+
+func TestAgentsInstallPassesDryRunAndForce(t *testing.T) {
+	agents := &fakeAgentManager{report: testAgentReport()}
+	root := cli.New(cli.Dependencies{Agents: agents}, testStreams())
+	root.SetArgs([]string{
+		"agents", "install",
+		"--target", "codex",
+		"--dry-run",
+		"--force",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, agents.calls, "install:codex:dry=true:force=true")
+}
+
+func TestAgentsUninstallPassesDryRunAndForce(t *testing.T) {
+	agents := &fakeAgentManager{report: testAgentReport()}
+	root := cli.New(cli.Dependencies{Agents: agents}, testStreams())
+	root.SetArgs([]string{
+		"agents", "uninstall",
+		"--target", "claude",
+		"--dry-run",
+		"--force",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, agents.calls, "uninstall:claude:dry=true:force=true")
+}
+
+func TestAgentsStatusUsesRootJSONContract(t *testing.T) {
+	agents := &fakeAgentManager{report: testAgentReport()}
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{Agents: agents}, streams)
+	root.SetArgs([]string{
+		"--json", "agents", "status", "--target", "codex",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	var got agentintegration.Report
+	if err := json.Unmarshal(
+		streams.Out.(*bytes.Buffer).Bytes(),
+		&got,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, agents.report) {
+		t.Fatalf("report = %#v, want %#v", got, agents.report)
+	}
+}
+
+func TestAgentsPropagatesConflict(t *testing.T) {
+	agents := &fakeAgentManager{err: agentintegration.ErrConflict}
+	root := cli.New(cli.Dependencies{Agents: agents}, testStreams())
+	root.SetArgs([]string{"agents", "install", "--target", "codex"})
+
+	err := root.Execute()
+
+	if !errors.Is(err, agentintegration.ErrConflict) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAgentsStatusNeverCallsMutationMethods(t *testing.T) {
+	agents := &fakeAgentManager{report: testAgentReport()}
+	root := cli.New(cli.Dependencies{Agents: agents}, testStreams())
+	root.SetArgs([]string{"agents", "status"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, agents.calls, "status:all:dry=false:force=false")
+}
+
 func testStreams() cli.Streams {
 	return cli.Streams{
 		In:         strings.NewReader(""),
@@ -397,6 +577,25 @@ func testStreams() cli.Streams {
 		Terminal:   true,
 		WorkingDir: "/repo",
 	}
+}
+
+func testAgentReport() agentintegration.Report {
+	return agentintegration.Report{Targets: []agentintegration.TargetStatus{{
+		Target:           agentintegration.TargetCodex,
+		Installed:        true,
+		Version:          "0.1.0",
+		SkillPath:        "/home/test/.agents/skills/wktbox-isolated-development",
+		InstructionsPath: "/home/test/.codex/AGENTS.md",
+		ManagedBlock:     true,
+		ExpectedDigest:   "sha256:expected",
+		ActualDigest:     "sha256:expected",
+	}}}
+}
+
+func agentCall(operation string, options agentintegration.Options) string {
+	return operation + ":" + string(options.Target) +
+		":dry=" + boolString(options.DryRun) +
+		":force=" + boolString(options.Force)
 }
 
 func assertCalls(t *testing.T, got []string, want ...string) {

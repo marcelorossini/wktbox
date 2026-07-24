@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"wktbox/internal/agentintegration"
 	"wktbox/internal/loopback"
 	"wktbox/internal/output"
 	"wktbox/internal/ports"
@@ -216,5 +217,69 @@ func TestQuietSuppressesLoopbackSummary(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestAgentReportJSONUsesPublicSchema(t *testing.T) {
+	var stdout bytes.Buffer
+	renderer := output.New(output.Options{JSON: true, Out: &stdout})
+	report := agentintegration.Report{Targets: []agentintegration.TargetStatus{{
+		Target:           agentintegration.TargetCodex,
+		Installed:        true,
+		Version:          "0.1.0",
+		SkillPath:        "/home/test/.agents/skills/wktbox-isolated-development",
+		InstructionsPath: "/home/test/.codex/AGENTS.md",
+		ManagedBlock:     true,
+		ExpectedDigest:   "sha256:expected",
+		ActualDigest:     "sha256:actual",
+		Conflict:         true,
+	}}}
+
+	if err := renderer.AgentReport(report); err != nil {
+		t.Fatal(err)
+	}
+
+	var got agentintegration.Report
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Targets) != 1 ||
+		got.Targets[0].SkillPath != report.Targets[0].SkillPath ||
+		!got.Targets[0].Conflict {
+		t.Fatalf("report = %#v", got)
+	}
+}
+
+func TestHumanAgentReportIncludesPathsStateAndConflictRemediation(t *testing.T) {
+	var stdout bytes.Buffer
+	renderer := output.New(output.Options{Out: &stdout})
+	report := agentintegration.Report{Targets: []agentintegration.TargetStatus{{
+		Target:           agentintegration.TargetClaude,
+		Installed:        true,
+		Version:          "0.1.0",
+		SkillPath:        "/home/test/.claude/skills/wktbox-isolated-development",
+		InstructionsPath: "/home/test/.claude/CLAUDE.md",
+		ManagedBlock:     false,
+		ExpectedDigest:   "sha256:expected",
+		ActualDigest:     "sha256:actual",
+		Conflict:         true,
+	}}}
+
+	if err := renderer.AgentReport(report); err != nil {
+		t.Fatal(err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"claude",
+		"installed",
+		report.Targets[0].SkillPath,
+		report.Targets[0].InstructionsPath,
+		"conflict",
+		"--force",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("human report missing %q:\n%s", want, got)
+		}
 	}
 }
