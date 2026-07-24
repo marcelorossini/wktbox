@@ -29,6 +29,7 @@ type Manager struct {
 
 type RelayLifecycle interface {
 	Ensure(context.Context, portforward.RelayProcessOptions) error
+	Probe(context.Context, portforward.RelayProcessOptions) error
 	Stop(context.Context, portforward.RelayProcessOptions) error
 }
 
@@ -51,6 +52,23 @@ func (nativeRelayLifecycle) Stop(
 	options portforward.RelayProcessOptions,
 ) error {
 	return portforward.StopRelayProcess(ctx, options)
+}
+
+func (nativeRelayLifecycle) Probe(
+	ctx context.Context,
+	options portforward.RelayProcessOptions,
+) error {
+	token, err := os.ReadFile(options.TokenPath)
+	if err != nil {
+		return fmt.Errorf("read relay token: %w", err)
+	}
+	address := options.ProbeAddress
+	if address == "" {
+		address = options.ListenAddress
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	return portforward.ProbeRelay(probeCtx, address, token)
 }
 
 func NewManager(
@@ -184,7 +202,10 @@ func (manager Manager) ensure(
 	if exists {
 		realStatus, inspectErr = manager.backend.Inspect(ctx, project)
 	}
-	if exists && inspectErr == nil && realStatus.Ready() && !requiresComposeApply {
+	if exists &&
+		inspectErr == nil &&
+		realStatus.ReadyFor(project) &&
+		!requiresComposeApply {
 		record.Status = state.Ready
 		if err := manager.startImportRelay(ctx, record); err != nil {
 			return state.BoxRecord{}, manager.persistError(
@@ -202,6 +223,7 @@ func (manager Manager) ensure(
 				err,
 			)
 		}
+		record.PortRuntimeError = ""
 		record = manager.attachLoopback(ctx, record, realStatus)
 		current.Boxes[record.ID] = record
 		if err := manager.reconcileConnectionsForBox(
@@ -251,7 +273,7 @@ func (manager Manager) ensure(
 	if err != nil {
 		return state.BoxRecord{}, manager.persistError(ctx, current, record, err)
 	}
-	if !realStatus.Ready() {
+	if !realStatus.ReadyFor(project) {
 		err = fmt.Errorf("box %s did not become ready", record.ID)
 		return state.BoxRecord{}, manager.persistError(ctx, current, record, err)
 	}
@@ -265,6 +287,7 @@ func (manager Manager) ensure(
 	}
 
 	record.Status = state.Ready
+	record.PortRuntimeError = ""
 	record = manager.attachLoopback(ctx, record, realStatus)
 	current.Boxes[record.ID] = record
 	if err := manager.reconcileConnectionsForBox(
@@ -298,11 +321,15 @@ func (manager Manager) Inspect(ctx context.Context, id string) (state.BoxRecord,
 	if !exists {
 		return state.BoxRecord{}, fmt.Errorf("%w: %s", ErrBoxNotFound, id)
 	}
-	realStatus, err := manager.backend.Inspect(ctx, projectFor(record))
+	project := projectFor(record)
+	realStatus, err := manager.backend.Inspect(ctx, project)
 	if err != nil {
 		return state.BoxRecord{}, err
 	}
-	record.Status = statusFromCompose(realStatus)
+	record.Status = statusFromCompose(realStatus, project)
+	if record.Status == state.Ready && record.PortRuntimeError != "" {
+		record.Status = state.Error
+	}
 	record = manager.attachLoopback(ctx, record, realStatus)
 	current.Boxes[id] = record
 	if err := manager.store.Save(ctx, current); err != nil {
@@ -420,7 +447,7 @@ func (manager Manager) Restart(ctx context.Context, id string) error {
 	if err != nil {
 		return manager.persistError(ctx, current, record, err)
 	}
-	if !realStatus.Ready() {
+	if !realStatus.ReadyFor(projectFor(record)) {
 		return manager.persistError(
 			ctx,
 			current,
@@ -432,6 +459,7 @@ func (manager Manager) Restart(ctx context.Context, id string) error {
 		return manager.persistError(ctx, current, record, err)
 	}
 	record.Status = state.Ready
+	record.PortRuntimeError = ""
 	current.Boxes[id] = record
 	if err := manager.reconcileConnectionsForBox(ctx, &current, id); err != nil {
 		if saveErr := manager.store.Save(ctx, current); saveErr != nil {
@@ -565,8 +593,16 @@ func (manager Manager) loadAndReconcileUnlocked(ctx context.Context) (state.Stat
 			record.Ports = actual.Ports
 		}
 		record.GatewayEnabled = actual.GatewayEnabled
-		if actual.State == compose.Running && actual.Healthy {
-			record.Status = state.Ready
+		runtimeHealthy := actual.Healthy
+		if len(portforward.Filter(record.PortMappings, portforward.Publish)) != 0 {
+			runtimeHealthy = runtimeHealthy && actual.PortBridgeRunning
+		}
+		if actual.State == compose.Running && runtimeHealthy {
+			if record.PortRuntimeError != "" {
+				record.Status = state.Error
+			} else {
+				record.Status = state.Ready
+			}
 		} else if actual.State == compose.Stopped {
 			record.Status = state.Stopped
 		} else {
@@ -620,8 +656,11 @@ func projectFor(record state.BoxRecord) compose.Project {
 	}
 }
 
-func statusFromCompose(status compose.Status) state.Status {
-	if status.Ready() {
+func statusFromCompose(
+	status compose.Status,
+	project compose.Project,
+) state.Status {
+	if status.ReadyFor(project) {
 		return state.Ready
 	}
 	if !status.Exists || status.State == compose.Stopped {

@@ -205,6 +205,32 @@ func TestInspectRequiresHealthyInterconnect(t *testing.T) {
 	}
 }
 
+func TestStatusReadyForPublicationsRequiresRunningPortBridge(t *testing.T) {
+	status := compose.Status{
+		Exists: true,
+		State:  compose.Running,
+		Containers: []compose.ContainerStatus{
+			{Service: "docker", State: "running", Health: "healthy"},
+			{Service: "webtop", State: "running"},
+			{Service: "loopback", State: "running", Health: "healthy"},
+			{Service: "interconnect", State: "running", Health: "healthy"},
+		},
+	}
+	project := testProject()
+	project.PortMappingsEnabled = true
+
+	if status.ReadyFor(project) {
+		t.Fatal("publication project is ready without portbridge")
+	}
+	status.Containers = append(status.Containers, compose.ContainerStatus{
+		Service: "portbridge",
+		State:   "running",
+	})
+	if !status.ReadyFor(project) {
+		t.Fatalf("publication project is not ready with portbridge: %#v", status)
+	}
+}
+
 func TestInspectReportsStoppedWhenNoContainerRuns(t *testing.T) {
 	runner := &recordingRunner{results: []process.Result{{Stdout: `[
 		{"Name":"wktbox-a-docker-1","Service":"docker","State":"exited","Health":""},

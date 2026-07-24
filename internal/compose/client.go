@@ -49,6 +49,10 @@ type Status struct {
 }
 
 func (status Status) Ready() bool {
+	return status.ReadyFor(Project{})
+}
+
+func (status Status) ReadyFor(project Project) bool {
 	if !status.Exists || status.State != Running {
 		return false
 	}
@@ -56,6 +60,7 @@ func (status Status) Ready() bool {
 	webtopReady := false
 	loopbackReady := false
 	interconnectReady := false
+	portbridgeReady := !project.PortMappingsEnabled
 	for _, container := range status.Containers {
 		switch container.Service {
 		case "docker":
@@ -66,19 +71,26 @@ func (status Status) Ready() bool {
 			loopbackReady = container.State == "running" && container.Health == "healthy"
 		case "interconnect":
 			interconnectReady = container.State == "running" && container.Health == "healthy"
+		case "portbridge":
+			portbridgeReady = container.State == "running"
 		}
 	}
-	return dockerReady && webtopReady && loopbackReady && interconnectReady
+	return dockerReady &&
+		webtopReady &&
+		loopbackReady &&
+		interconnectReady &&
+		portbridgeReady
 }
 
 type ManagedProject struct {
-	ID             string
-	Worktree       string
-	ProjectName    string
-	State          RuntimeState
-	Healthy        bool
-	Ports          ports.Block
-	GatewayEnabled bool
+	ID                string
+	Worktree          string
+	ProjectName       string
+	State             RuntimeState
+	Healthy           bool
+	Ports             ports.Block
+	GatewayEnabled    bool
+	PortBridgeRunning bool
 }
 
 type ConnectionNetwork struct {
@@ -270,6 +282,8 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 				strings.Contains(strings.ToLower(statusText), "(healthy)")
 		case "gateway":
 			entry.project.GatewayEnabled = true
+		case "portbridge":
+			entry.project.PortBridgeRunning = containerRunning
 		}
 	}
 	if err := scanner.Err(); err != nil {

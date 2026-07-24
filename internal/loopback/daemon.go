@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"wktbox/internal/lock"
 	"wktbox/internal/portforward"
 )
 
@@ -19,16 +20,17 @@ type Backoff struct {
 }
 
 type DaemonOptions struct {
-	Source           Source
-	Reconciler       *Reconciler
-	Debounce         time.Duration
-	ResyncInterval   time.Duration
-	Backoff          Backoff
-	Random           func() float64
-	Logf             func(string, ...any)
-	Now              func() time.Time
-	Imports          ImportManager
-	LoadPortMappings func() ([]portforward.Mapping, error)
+	Source                  Source
+	Reconciler              *Reconciler
+	Debounce                time.Duration
+	ResyncInterval          time.Duration
+	Backoff                 Backoff
+	Random                  func() float64
+	Logf                    func(string, ...any)
+	Now                     func() time.Time
+	Imports                 ImportManager
+	LoadPortMappings        func() ([]portforward.Mapping, error)
+	PortTransactionLockPath string
 }
 
 type ImportManager interface {
@@ -39,23 +41,25 @@ type ImportManager interface {
 		[]portforward.Mapping,
 		ImportApplyMode,
 	) ([]Warning, error)
+	Statuses() []ImportStatus
 	Close() error
 }
 
 type Daemon struct {
-	source           Source
-	reconciler       *Reconciler
-	debounce         time.Duration
-	resyncInterval   time.Duration
-	backoff          Backoff
-	random           func() float64
-	logf             func(string, ...any)
-	now              func() time.Time
-	imports          ImportManager
-	loadPortMappings func() ([]portforward.Mapping, error)
-	syncMutex        sync.Mutex
-	logMutex         sync.Mutex
-	lastLog          map[string]time.Time
+	source                  Source
+	reconciler              *Reconciler
+	debounce                time.Duration
+	resyncInterval          time.Duration
+	backoff                 Backoff
+	random                  func() float64
+	logf                    func(string, ...any)
+	now                     func() time.Time
+	imports                 ImportManager
+	loadPortMappings        func() ([]portforward.Mapping, error)
+	portTransactionLockPath string
+	syncMutex               sync.Mutex
+	logMutex                sync.Mutex
+	lastLog                 map[string]time.Time
 }
 
 func NewDaemon(options DaemonOptions) *Daemon {
@@ -87,17 +91,18 @@ func NewDaemon(options DaemonOptions) *Daemon {
 		options.Now = time.Now
 	}
 	return &Daemon{
-		source:           options.Source,
-		reconciler:       options.Reconciler,
-		debounce:         options.Debounce,
-		resyncInterval:   options.ResyncInterval,
-		backoff:          options.Backoff,
-		random:           options.Random,
-		logf:             options.Logf,
-		now:              options.Now,
-		imports:          options.Imports,
-		loadPortMappings: options.LoadPortMappings,
-		lastLog:          make(map[string]time.Time),
+		source:                  options.Source,
+		reconciler:              options.Reconciler,
+		debounce:                options.Debounce,
+		resyncInterval:          options.ResyncInterval,
+		backoff:                 options.Backoff,
+		random:                  options.Random,
+		logf:                    options.Logf,
+		now:                     options.Now,
+		imports:                 options.Imports,
+		loadPortMappings:        options.LoadPortMappings,
+		portTransactionLockPath: options.PortTransactionLockPath,
+		lastLog:                 make(map[string]time.Time),
 	}
 }
 
@@ -169,7 +174,18 @@ func (daemon *Daemon) Run(ctx context.Context) (runErr error) {
 }
 
 func (daemon *Daemon) Sync(ctx context.Context) (Status, error) {
-	return daemon.sync(ctx, ImportApplyEvent)
+	if daemon.portTransactionLockPath == "" {
+		return daemon.sync(ctx, ImportApplyEvent)
+	}
+	unlock, err := lock.Acquire(ctx, daemon.portTransactionLockPath)
+	if err != nil {
+		return daemon.Status(), fmt.Errorf(
+			"wait for port mapping transaction: %w",
+			err,
+		)
+	}
+	status, syncErr := daemon.sync(ctx, ImportApplyEvent)
+	return status, errors.Join(syncErr, unlock())
 }
 
 func (daemon *Daemon) SyncImports(ctx context.Context) (Status, error) {
@@ -225,6 +241,7 @@ func (daemon *Daemon) sync(
 		status = daemon.reconciler.SetWarnings(
 			append(desired.Warnings, warnings...),
 		)
+		status = daemon.reconciler.SetImports(daemon.imports.Statuses())
 	}
 	stream := status.EventStream
 	if stream == "" {
@@ -237,7 +254,11 @@ func (daemon *Daemon) Status() Status {
 	if daemon.reconciler == nil {
 		return Unavailable(errors.New("loopback reconciler is not configured"))
 	}
-	return daemon.reconciler.Status()
+	status := daemon.reconciler.Status()
+	if daemon.imports != nil {
+		status.Imports = daemon.imports.Statuses()
+	}
+	return status
 }
 
 func (daemon *Daemon) consume(ctx context.Context, subscription Subscription) error {

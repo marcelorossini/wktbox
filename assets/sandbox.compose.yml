@@ -113,6 +113,7 @@ services:
       DOCKER_TLS_VERIFY: "1"
       DOCKER_CERT_PATH: /certs/client
       WKTBOX_PORT_CONFIG: /run/wktbox-ports/ports.json
+      WKTBOX_PORT_TRANSACTION_LOCK: /run/wktbox-port-transaction/transaction.lock
       WKTBOX_RELAY_HOST: host-gateway
       WKTBOX_RELAY_PORT: ${PORT_IMPORT_RELAY}
       WKTBOX_RELAY_TOKEN: /run/wktbox-ports/relay.token
@@ -127,6 +128,9 @@ services:
         source: ${PORT_RUNTIME_PATH}
         target: /run/wktbox-ports
         read_only: true
+      - type: bind
+        source: ${PORT_TRANSACTION_PATH}
+        target: /run/wktbox-port-transaction
     healthcheck:
       test:
         - CMD-SHELL

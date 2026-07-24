@@ -9,6 +9,10 @@ const (
 
 	RouteListening = "listening"
 	RouteConflict  = "conflict"
+
+	ImportListening = "listening"
+	ImportExited    = "exited"
+	ImportFailed    = "failed"
 )
 
 type PortBinding struct {
@@ -35,6 +39,7 @@ type Publication struct {
 
 type Warning struct {
 	Code    string `json:"code"`
+	Mapping string `json:"mapping,omitempty"`
 	Port    uint16 `json:"port,omitempty"`
 	Source  string `json:"source,omitempty"`
 	Message string `json:"message"`
@@ -54,11 +59,20 @@ type Route struct {
 	Error    string   `json:"error,omitempty"`
 }
 
+type ImportStatus struct {
+	Mapping  string `json:"mapping"`
+	Workload string `json:"workload"`
+	Port     uint16 `json:"port"`
+	State    string `json:"state"`
+	Error    string `json:"error,omitempty"`
+}
+
 type Status struct {
-	EventStream string    `json:"eventStream"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	Routes      []Route   `json:"routes"`
-	Warnings    []Warning `json:"warnings"`
+	EventStream string         `json:"eventStream"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
+	Routes      []Route        `json:"routes"`
+	Imports     []ImportStatus `json:"imports,omitempty"`
+	Warnings    []Warning      `json:"warnings"`
 }
 
 func Unavailable(err error) Status {

@@ -367,7 +367,7 @@ func (application *App) PortMappings(
 	ctx context.Context,
 	box state.BoxRecord,
 ) ([]portforward.ObservedMapping, error) {
-	if err := application.validatePortBox(box); err != nil {
+	if err := application.validatePortManager(); err != nil {
 		return nil, err
 	}
 	return application.manager.PortMappings(ctx, box.ID)
@@ -379,8 +379,15 @@ func (application *App) RemovePortMappings(
 	names []string,
 	direction portforward.Direction,
 ) ([]portforward.ObservedMapping, error) {
-	if err := application.validatePortBox(box); err != nil {
+	if err := application.validatePortManager(); err != nil {
 		return nil, err
+	}
+	if box.Status != state.Ready && box.Status != state.Stopped {
+		return nil, fmt.Errorf(
+			"box %s is %s; port mappings can only be removed while ready or stopped",
+			box.ID,
+			box.Status,
+		)
 	}
 	return application.manager.RemovePortMappings(
 		ctx,
@@ -391,8 +398,8 @@ func (application *App) RemovePortMappings(
 }
 
 func (application *App) validatePortBox(box state.BoxRecord) error {
-	if application.manager == nil {
-		return errors.New("sandbox manager is not configured")
+	if err := application.validatePortManager(); err != nil {
+		return err
 	}
 	if box.Status != state.Ready {
 		return fmt.Errorf(
@@ -400,6 +407,13 @@ func (application *App) validatePortBox(box state.BoxRecord) error {
 			box.ID,
 			box.Status,
 		)
+	}
+	return nil
+}
+
+func (application *App) validatePortManager() error {
+	if application.manager == nil {
+		return errors.New("sandbox manager is not configured")
 	}
 	return nil
 }

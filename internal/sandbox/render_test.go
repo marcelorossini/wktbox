@@ -62,7 +62,8 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	}
 	if files.PortConfigPath == "" ||
 		files.PortOverridePath == "" ||
-		files.PortRelayTokenPath == "" {
+		files.PortRelayTokenPath == "" ||
+		files.PortTransactionLockPath == "" {
 		t.Fatalf("files = %#v", files)
 	}
 	if filepath.Dir(files.PortConfigPath) != filepath.Dir(files.PortRelayTokenPath) ||
@@ -75,6 +76,27 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	}
 	if tokenInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("relay token mode = %o", tokenInfo.Mode().Perm())
+	}
+	if filepath.Dir(files.PortTransactionLockPath) ==
+		filepath.Dir(files.PortConfigPath) {
+		t.Fatalf("transaction lock shares protected runtime directory: %#v", files)
+	}
+	transactionInfo, err := os.Stat(filepath.Dir(files.PortTransactionLockPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transactionInfo.Mode().Perm() != 0o700 {
+		t.Fatalf(
+			"port transaction directory mode = %o",
+			transactionInfo.Mode().Perm(),
+		)
+	}
+	lockInfo, err := os.Stat(files.PortTransactionLockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lockInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("port transaction lock mode = %o", lockInfo.Mode().Perm())
 	}
 	if body := readFile(t, files.PortConfigPath); !strings.Contains(body, `"postgres"`) ||
 		!strings.Contains(body, `"api"`) {
@@ -124,8 +146,11 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	body := readFile(t, files.ComposePath)
 	for _, required := range []string{
 		"${PORT_RUNTIME_PATH}",
+		"${PORT_TRANSACTION_PATH}",
 		"target: /run/wktbox-ports",
+		"target: /run/wktbox-port-transaction",
 		"/run/wktbox-ports/relay.token",
+		"WKTBOX_PORT_TRANSACTION_LOCK",
 		"WKTBOX_RELAY_PORT",
 		"WKTBOX_RELAY_HOST: host-gateway",
 	} {

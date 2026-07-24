@@ -62,6 +62,7 @@ type BoxRecord struct {
 	PortOverridePath       string                `json:"portOverridePath,omitempty"`
 	PortRelayTokenPath     string                `json:"portRelayTokenPath,omitempty"`
 	PortMappings           []portforward.Mapping `json:"portMappings,omitempty"`
+	PortRuntimeError       string                `json:"portRuntimeError,omitempty"`
 	CreatedAt              time.Time             `json:"createdAt"`
 	LastUsedAt             time.Time             `json:"lastUsedAt"`
 	Loopback               loopback.Status       `json:"-"`

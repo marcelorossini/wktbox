@@ -351,6 +351,18 @@ func TestPortListJSONNeverContainsRelaySecrets(t *testing.T) {
 	assertCalls(t, fake.calls, "Resolve:.", "Inspect", "PortMappings")
 }
 
+func TestPortListSupportsStoppedBox(t *testing.T) {
+	fake := newFakeService()
+	fake.status = state.Stopped
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"port", "list"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	assertCalls(t, fake.calls, "Resolve:.", "Inspect", "PortMappings")
+}
+
 func TestPortRemoveSupportsAllImportsWithoutNames(t *testing.T) {
 	fake := newFakeService()
 	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
@@ -365,6 +377,24 @@ func TestPortRemoveSupportsAllImportsWithoutNames(t *testing.T) {
 		"Resolve:.",
 		"Inspect",
 		"RemovePortMappings::import",
+	)
+}
+
+func TestPortRemoveSupportsStoppedBox(t *testing.T) {
+	fake := newFakeService()
+	fake.status = state.Stopped
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"port", "remove", "api"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	assertCalls(
+		t,
+		fake.calls,
+		"Resolve:.",
+		"Inspect",
+		"RemovePortMappings:api:",
 	)
 }
 

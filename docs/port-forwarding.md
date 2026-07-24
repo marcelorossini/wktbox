@@ -2,7 +2,8 @@
 
 Wktbox keeps ordinary project ports private to each box. Use the explicit
 `wktbox port` commands when traffic must cross the real-host boundary. These
-commands require an existing ready box; run `wktbox up` first.
+commands require an existing box. Adding an import or publication requires it
+to be ready; listing and removing mappings also work while it is stopped.
 
 Forwarding is TCP only. It preserves HTTP, HTTPS, WebSocket, PostgreSQL, Redis,
 and other TCP protocols without interpreting them.
@@ -108,6 +109,11 @@ state, and optional error. Relay tokens, process IDs, and generated file paths
 are never included.
 
 `wktbox stop` closes active listeners but preserves desired mappings.
+`wktbox port list` reports stopped mappings as `stopped`, and removing one
+while stopped only updates desired configuration; it does not start the box.
+While running, observed state checks the publication bridge, authenticated host
+relay, reconciler event stream, and workload proxy processes rather than
+assuming every mapping is healthy from the box state alone.
 `wktbox up` and `wktbox restart` restore both directions. `wktbox destroy`
 removes the mappings with the selected box. Inner workloads still follow
 their own Docker restart policy; use a policy such as `unless-stopped` when a
@@ -122,7 +128,12 @@ container-local port, and publications cannot share the same host listener.
 Every add or remove command is transactional. Parse errors, duplicate names,
 host bind conflicts, workload localhost conflicts, relay failures, Compose
 failures, and persistence failures restore the previous files, runtime, and
-desired state before the command returns.
+desired state before the command returns. A shared transaction lock prevents
+the background workload reconciler from observing candidate configuration
+before the command commits. If runtime rollback itself fails, the box is
+persisted as degraded instead of being reported as ready. A successful
+`wktbox restart <box>` or `wktbox up` reconciles the runtime and clears that
+degradation.
 
 See [Security](security.md) for the relay trust model and
 [Troubleshooting](troubleshooting.md) for conflict diagnosis.

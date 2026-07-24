@@ -31,17 +31,17 @@ func NewManager(root string) Manager {
 }
 
 func (manager Manager) Global(ctx context.Context) (UnlockFunc, error) {
-	return acquire(ctx, filepath.Join(manager.root, "state.lock"))
+	return Acquire(ctx, filepath.Join(manager.root, "state.lock"))
 }
 
 func (manager Manager) Box(ctx context.Context, id string) (UnlockFunc, error) {
 	if !boxIDPattern.MatchString(id) {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidBoxID, id)
 	}
-	return acquire(ctx, filepath.Join(manager.root, "boxes", id, "box.lock"))
+	return Acquire(ctx, filepath.Join(manager.root, "boxes", id, "box.lock"))
 }
 
-func acquire(ctx context.Context, path string) (UnlockFunc, error) {
+func Acquire(ctx context.Context, path string) (UnlockFunc, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

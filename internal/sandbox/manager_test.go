@@ -45,6 +45,7 @@ type fakeBackend struct {
 	portPreflightCalls [][]portforward.Mapping
 	portApplyCalls     []compose.Project
 	portRuntimeCalls   []compose.Project
+	portApplyHook      func(context.Context, compose.Project) error
 }
 
 type downCall struct {
@@ -124,10 +125,15 @@ func (backend *fakeBackend) PortImportPreflight(
 }
 
 func (backend *fakeBackend) PortImportApply(
-	_ context.Context,
+	ctx context.Context,
 	project compose.Project,
 ) (loopback.Status, error) {
 	backend.portApplyCalls = append(backend.portApplyCalls, project)
+	if backend.portApplyHook != nil {
+		if err := backend.portApplyHook(ctx, project); err != nil {
+			return backend.loopback, err
+		}
+	}
 	index := len(backend.portApplyCalls) - 1
 	if index < len(backend.portApplyErrors) {
 		return backend.loopback, backend.portApplyErrors[index]

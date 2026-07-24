@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"time"
 
+	"wktbox/internal/compose"
+	"wktbox/internal/lock"
+	"wktbox/internal/loopback"
 	"wktbox/internal/portforward"
 	"wktbox/internal/state"
 )
@@ -66,7 +69,7 @@ func (manager Manager) PortMappings(
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrBoxNotFound, id)
 	}
-	return observedPortMappings(record), nil
+	return manager.observePortMappings(ctx, record), nil
 }
 
 func (manager Manager) RemovePortMappings(
@@ -80,9 +83,16 @@ func (manager Manager) RemovePortMappings(
 		return nil, err
 	}
 	defer unlock()
-	current, record, err := manager.readyPortRecord(ctx, id)
+	current, record, err := manager.portRecord(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if record.Status != state.Ready && record.Status != state.Stopped {
+		return nil, fmt.Errorf(
+			"box %s is %s; port mappings can only be removed while ready or stopped",
+			id,
+			record.Status,
+		)
 	}
 	removeNames := make(map[string]bool, len(names))
 	for _, name := range names {
@@ -173,6 +183,24 @@ func (manager Manager) readyPortRecord(
 	ctx context.Context,
 	id string,
 ) (state.State, state.BoxRecord, error) {
+	current, record, err := manager.portRecord(ctx, id)
+	if err != nil {
+		return state.State{}, state.BoxRecord{}, err
+	}
+	if record.Status != state.Ready {
+		return state.State{}, state.BoxRecord{}, fmt.Errorf(
+			"box %s is %s; run wktbox up before changing port mappings",
+			id,
+			record.Status,
+		)
+	}
+	return current, record, nil
+}
+
+func (manager Manager) portRecord(
+	ctx context.Context,
+	id string,
+) (state.State, state.BoxRecord, error) {
 	current, err := manager.loadAndReconcile(ctx)
 	if err != nil {
 		return state.State{}, state.BoxRecord{}, err
@@ -183,13 +211,6 @@ func (manager Manager) readyPortRecord(
 			"%w: %s",
 			ErrBoxNotFound,
 			id,
-		)
-	}
-	if record.Status != state.Ready {
-		return state.State{}, state.BoxRecord{}, fmt.Errorf(
-			"box %s is %s; run wktbox up before changing port mappings",
-			id,
-			record.Status,
 		)
 	}
 	return current, manager.ensurePortRecordPaths(record), nil
@@ -209,6 +230,30 @@ func (manager Manager) ensurePortRecordPaths(
 }
 
 func (manager Manager) applyPortMappings(
+	ctx context.Context,
+	current state.State,
+	previous state.BoxRecord,
+	mappings []portforward.Mapping,
+) ([]portforward.ObservedMapping, error) {
+	transactionLockPath := filepath.Join(
+		filepath.Dir(previous.ComposePath),
+		"port-transaction",
+		"transaction.lock",
+	)
+	unlock, err := lock.Acquire(ctx, transactionLockPath)
+	if err != nil {
+		return nil, fmt.Errorf("begin port mapping transaction: %w", err)
+	}
+	observed, applyErr := manager.applyPortMappingsLocked(
+		ctx,
+		current,
+		previous,
+		mappings,
+	)
+	return observed, errors.Join(applyErr, unlock())
+}
+
+func (manager Manager) applyPortMappingsLocked(
 	ctx context.Context,
 	current state.State,
 	previous state.BoxRecord,
@@ -257,6 +302,28 @@ func (manager Manager) applyPortMappings(
 		candidate.PortOverridePath = overridePath
 	} else {
 		candidate.PortOverridePath = ""
+	}
+	if previous.Status == state.Stopped {
+		current.Boxes[candidate.ID] = candidate
+		saveErr := manager.store.Save(ctx, current)
+		if saveErr == nil {
+			return observedPortMappings(candidate), nil
+		}
+		restoreErr := errors.Join(
+			restorePortFile(configSnapshot),
+			restorePortFile(overrideSnapshot),
+		)
+		if restoreErr != nil {
+			previous.Status = state.Error
+			previous.PortRuntimeError = restoreErr.Error()
+		}
+		current.Boxes[previous.ID] = previous
+		rollbackErr := manager.store.Save(ctx, current)
+		return nil, errors.Join(
+			fmt.Errorf("save stopped box port mappings: %w", saveErr),
+			restoreErr,
+			rollbackErr,
+		)
 	}
 
 	activationErr := manager.activatePortMappings(
@@ -370,8 +437,20 @@ func (manager Manager) rollbackPortMappings(
 			manager.relay.Stop(ctx, relayOptions(previous)),
 		)
 	}
+	if result != nil {
+		previous.Status = state.Error
+		previous.PortRuntimeError = result.Error()
+	}
 	current.Boxes[previous.ID] = previous
-	result = errors.Join(result, manager.store.Save(ctx, current))
+	saveErr := manager.store.Save(ctx, current)
+	if saveErr != nil {
+		previous.Status = state.Error
+		persistErr := fmt.Errorf("persist rollback state: %w", saveErr)
+		previous.PortRuntimeError = errors.Join(result, persistErr).Error()
+		current.Boxes[previous.ID] = previous
+		saveErr = errors.Join(saveErr, manager.store.Save(ctx, current))
+	}
+	result = errors.Join(result, saveErr)
 	if result != nil {
 		return fmt.Errorf("rollback port mappings: %w", result)
 	}
@@ -384,19 +463,176 @@ func observedPortMappings(
 	mappings := append([]portforward.Mapping(nil), record.PortMappings...)
 	portforward.Sort(mappings)
 	observedState := portforward.StateStopped
+	observedError := ""
 	if record.Status == state.Ready {
 		observedState = portforward.StateReady
 	} else if record.Status == state.Error {
 		observedState = portforward.StateDegraded
+		observedError = record.PortRuntimeError
 	}
 	result := make([]portforward.ObservedMapping, 0, len(mappings))
 	for _, mapping := range mappings {
 		result = append(result, portforward.ObservedMapping{
 			Mapping: mapping,
 			State:   observedState,
+			Error:   observedError,
 		})
 	}
 	return result
+}
+
+func (manager Manager) observePortMappings(
+	ctx context.Context,
+	record state.BoxRecord,
+) []portforward.ObservedMapping {
+	observed := observedPortMappings(record)
+	if len(observed) == 0 || record.Status == state.Stopped {
+		return observed
+	}
+	project := projectFor(record)
+	runtimeStatus, err := manager.backend.Inspect(ctx, project)
+	if err != nil {
+		return degradePortMappings(observed, "", err.Error())
+	}
+	if !runtimeStatus.Exists || runtimeStatus.State == compose.Stopped {
+		return setPortMappingState(
+			observed,
+			"",
+			portforward.StateStopped,
+			"",
+		)
+	}
+	if !runtimeStatus.Ready() {
+		return degradePortMappings(
+			observed,
+			"",
+			"box runtime dependencies are not ready",
+		)
+	}
+	if record.PortRuntimeError == "" {
+		observed = setPortMappingState(
+			observed,
+			"",
+			portforward.StateReady,
+			"",
+		)
+	} else {
+		observed = degradePortMappings(
+			observed,
+			"",
+			record.PortRuntimeError,
+		)
+	}
+	if !runtimeStatus.ReadyFor(project) {
+		observed = degradePortMappings(
+			observed,
+			portforward.Publish,
+			"publication portbridge is not running",
+		)
+	}
+
+	imports := portforward.Filter(record.PortMappings, portforward.Import)
+	if len(imports) == 0 {
+		return observed
+	}
+	if err := manager.relay.Probe(ctx, relayOptions(record)); err != nil {
+		observed = degradePortMappings(
+			observed,
+			portforward.Import,
+			fmt.Sprintf("host import relay is unavailable: %v", err),
+		)
+	}
+	loopbackStatus, err := manager.backend.LoopbackStatus(ctx, project)
+	if err != nil {
+		return degradePortMappings(
+			observed,
+			portforward.Import,
+			fmt.Sprintf("workload import status is unavailable: %v", err),
+		)
+	}
+	if loopbackStatus.EventStream != loopback.EventStreamConnected {
+		observed = degradePortMappings(
+			observed,
+			portforward.Import,
+			fmt.Sprintf(
+				"workload import reconciler is %s",
+				loopbackStatus.EventStream,
+			),
+		)
+	}
+	for _, importStatus := range loopbackStatus.Imports {
+		if importStatus.State == loopback.ImportListening {
+			continue
+		}
+		detail := importStatus.Error
+		if detail == "" {
+			detail = fmt.Sprintf(
+				"import proxy for workload %s is %s",
+				importStatus.Workload,
+				importStatus.State,
+			)
+		}
+		observed = degradeNamedPortMapping(
+			observed,
+			importStatus.Mapping,
+			detail,
+		)
+	}
+	for _, warning := range loopbackStatus.Warnings {
+		if warning.Mapping == "" {
+			continue
+		}
+		observed = degradeNamedPortMapping(
+			observed,
+			warning.Mapping,
+			warning.Message,
+		)
+	}
+	return observed
+}
+
+func degradePortMappings(
+	observed []portforward.ObservedMapping,
+	direction portforward.Direction,
+	detail string,
+) []portforward.ObservedMapping {
+	return setPortMappingState(
+		observed,
+		direction,
+		portforward.StateDegraded,
+		detail,
+	)
+}
+
+func setPortMappingState(
+	observed []portforward.ObservedMapping,
+	direction portforward.Direction,
+	mappingState string,
+	detail string,
+) []portforward.ObservedMapping {
+	for index := range observed {
+		if direction != "" && observed[index].Direction != direction {
+			continue
+		}
+		observed[index].State = mappingState
+		observed[index].Error = detail
+	}
+	return observed
+}
+
+func degradeNamedPortMapping(
+	observed []portforward.ObservedMapping,
+	name string,
+	detail string,
+) []portforward.ObservedMapping {
+	for index := range observed {
+		if observed[index].Name != name {
+			continue
+		}
+		observed[index].State = portforward.StateDegraded
+		observed[index].Error = detail
+	}
+	return observed
 }
 
 func preflightPublicationBindings(

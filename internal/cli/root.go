@@ -270,7 +270,7 @@ func (commands commandSet) portList() *cobra.Command {
 		Short: "List desired and observed port mappings",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			box, err := commands.portReadyBox(command.Context())
+			box, err := commands.portBox(command.Context())
 			if err != nil {
 				return err
 			}
@@ -317,7 +317,7 @@ func (commands commandSet) portRemove() *cobra.Command {
 			if allPublications {
 				direction = portforward.Publish
 			}
-			box, err := commands.portReadyBox(command.Context())
+			box, err := commands.portBox(command.Context())
 			if err != nil {
 				return err
 			}
@@ -351,6 +351,19 @@ func (commands commandSet) portRemove() *cobra.Command {
 func (commands commandSet) portReadyBox(
 	ctx context.Context,
 ) (state.BoxRecord, error) {
+	box, err := commands.portBox(ctx)
+	if err != nil {
+		return state.BoxRecord{}, err
+	}
+	if box.Status != state.Ready {
+		return state.BoxRecord{}, boxNotReadyError(box.Status)
+	}
+	return box, nil
+}
+
+func (commands commandSet) portBox(
+	ctx context.Context,
+) (state.BoxRecord, error) {
 	if commands.service == nil {
 		return state.BoxRecord{}, errors.New("sandbox service is not configured")
 	}
@@ -361,9 +374,6 @@ func (commands commandSet) portReadyBox(
 	box, err := commands.service.Inspect(ctx, resolution)
 	if err != nil {
 		return state.BoxRecord{}, err
-	}
-	if box.Status != state.Ready {
-		return state.BoxRecord{}, boxNotReadyError(box.Status)
 	}
 	return box, nil
 }

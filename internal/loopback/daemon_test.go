@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"wktbox/internal/lock"
 	"wktbox/internal/loopback"
 )
 
@@ -141,6 +143,46 @@ func TestDaemonPeriodicResyncRecoversMissedEvent(t *testing.T) {
 		return source.snapshotCount() >= 2 &&
 			hasRoute(daemon.Status(), 5432, loopback.RouteListening)
 	})
+}
+
+func TestDaemonBackgroundSyncWaitsForPortMappingTransaction(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "transaction.lock")
+	unlock, err := lock.Acquire(context.Background(), lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &fakeSource{}
+	source.setContainers(containerWithPort("frontend", 5173))
+	daemon := loopback.NewDaemon(loopback.DaemonOptions{
+		Source:                  source,
+		Reconciler:              newTestReconciler(),
+		PortTransactionLockPath: lockPath,
+	})
+
+	result := make(chan error, 1)
+	go func() {
+		_, syncErr := daemon.Sync(context.Background())
+		result <- syncErr
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	if got := source.snapshotCount(); got != 0 {
+		t.Fatalf("background sync read candidate config during transaction: snapshots = %d", got)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background sync did not resume after transaction")
+	}
+	if got := source.snapshotCount(); got != 1 {
+		t.Fatalf("snapshot calls = %d; want 1", got)
+	}
 }
 
 func TestDaemonLimitsRepeatedErrorsByClass(t *testing.T) {

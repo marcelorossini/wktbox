@@ -54,6 +54,11 @@ func Render(directory string, spec Spec) (Files, error) {
 		PortConfigPath:     filepath.Join(directory, "ports", "ports.json"),
 		PortOverridePath:   filepath.Join(directory, "ports.override.yml"),
 		PortRelayTokenPath: filepath.Join(directory, "ports", "relay.token"),
+		PortTransactionLockPath: filepath.Join(
+			directory,
+			"port-transaction",
+			"transaction.lock",
+		),
 	}
 	if err := os.MkdirAll(filepath.Dir(files.PortConfigPath), 0o700); err != nil {
 		return Files{}, fmt.Errorf("create port runtime directory: %w", err)
@@ -61,8 +66,34 @@ func Render(directory string, spec Spec) (Files, error) {
 	if err := os.Chmod(filepath.Dir(files.PortConfigPath), 0o700); err != nil {
 		return Files{}, fmt.Errorf("protect port runtime directory: %w", err)
 	}
+	if err := os.MkdirAll(
+		filepath.Dir(files.PortTransactionLockPath),
+		0o700,
+	); err != nil {
+		return Files{}, fmt.Errorf("create port transaction directory: %w", err)
+	}
+	if err := os.Chmod(
+		filepath.Dir(files.PortTransactionLockPath),
+		0o700,
+	); err != nil {
+		return Files{}, fmt.Errorf("protect port transaction directory: %w", err)
+	}
+	transactionLock, err := os.OpenFile(
+		files.PortTransactionLockPath,
+		os.O_CREATE|os.O_RDWR,
+		0o600,
+	)
+	if err != nil {
+		return Files{}, fmt.Errorf("create port transaction lock: %w", err)
+	}
+	if err := transactionLock.Close(); err != nil {
+		return Files{}, fmt.Errorf("close port transaction lock: %w", err)
+	}
+	if err := os.Chmod(files.PortTransactionLockPath, 0o600); err != nil {
+		return Files{}, fmt.Errorf("protect port transaction lock: %w", err)
+	}
 	_, tokenStatErr := os.Stat(files.PortRelayTokenPath)
-	_, err := portforward.EnsureRelayToken(files.PortRelayTokenPath)
+	_, err = portforward.EnsureRelayToken(files.PortRelayTokenPath)
 	if err != nil {
 		return Files{}, err
 	}
@@ -221,6 +252,10 @@ func renderSandboxEnv(spec Spec, gatewayConfigPath string) []byte {
 	values["PORT_RUNTIME_PATH"] = filepath.Join(
 		filepath.Dir(gatewayConfigPath),
 		"ports",
+	)
+	values["PORT_TRANSACTION_PATH"] = filepath.Join(
+		filepath.Dir(gatewayConfigPath),
+		"port-transaction",
 	)
 	keys := make([]string, 0, len(values))
 	for key := range values {

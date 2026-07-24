@@ -25,14 +25,15 @@ type Spec struct {
 }
 
 type Files struct {
-	ComposePath            string
-	SandboxEnvPath         string
-	ProjectEnvOverridePath string
-	GatewayConfigPath      string
-	PortConfigPath         string
-	PortOverridePath       string
-	PortRelayTokenPath     string
-	Changed                bool
+	ComposePath             string
+	SandboxEnvPath          string
+	ProjectEnvOverridePath  string
+	GatewayConfigPath       string
+	PortConfigPath          string
+	PortOverridePath        string
+	PortRelayTokenPath      string
+	PortTransactionLockPath string
+	Changed                 bool
 }
 
 func (files Files) ComposeFiles() []string {

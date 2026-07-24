@@ -32,6 +32,7 @@ type ImportProxySpec struct {
 }
 
 type ImportProxy interface {
+	Done() <-chan struct{}
 	Close() error
 }
 
@@ -61,6 +62,7 @@ type ImportReconciler struct {
 	active   map[string]activeImport
 	desired  []portforward.Mapping
 	warnings map[string]Warning
+	failures map[string]ImportStatus
 }
 
 func NewImportReconciler(options ImportOptions) *ImportReconciler {
@@ -69,6 +71,7 @@ func NewImportReconciler(options ImportOptions) *ImportReconciler {
 		stopper:  options.Stopper,
 		active:   make(map[string]activeImport),
 		warnings: make(map[string]Warning),
+		failures: make(map[string]ImportStatus),
 	}
 }
 
@@ -85,7 +88,8 @@ func (reconciler *ImportReconciler) Preflight(
 	for _, spec := range importSpecs(containers, mappings) {
 		key := importKey(spec)
 		if current, exists := reconciler.active[key]; exists &&
-			equalImportSpec(current.spec, spec) {
+			equalImportSpec(current.spec, spec) &&
+			importProxyRunning(current.proxy) {
 			continue
 		}
 		if err := reconciler.factory.Probe(ctx, spec); err != nil {
@@ -111,19 +115,24 @@ func (reconciler *ImportReconciler) Apply(
 	}
 	candidateMappings := portforward.Filter(mappings, portforward.Import)
 	reconciler.pruneWarnings(candidateMappings)
+	reconciler.pruneExited()
 	specs := importSpecs(containers, candidateMappings)
+	reconciler.pruneFailures(specs)
 	skippedContainers := make(map[string]bool)
 
 	for _, spec := range specs {
 		key := importKey(spec)
 		if current, exists := reconciler.active[key]; exists &&
-			equalImportSpec(current.spec, spec) {
+			equalImportSpec(current.spec, spec) &&
+			importProxyRunning(current.proxy) {
 			delete(reconciler.warnings, key)
+			delete(reconciler.failures, key)
 			continue
 		}
 		if err := reconciler.factory.Probe(ctx, spec); err != nil {
 			if errors.Is(err, ErrImportWorkloadGone) {
 				skippedContainers[spec.Container.ID] = true
+				delete(reconciler.failures, key)
 				continue
 			}
 			if !errors.Is(err, ErrImportPortConflict) {
@@ -146,6 +155,7 @@ func (reconciler *ImportReconciler) Apply(
 			}
 			skippedContainers[spec.Container.ID] = true
 			reconciler.warnings[key] = importWarning(spec)
+			delete(reconciler.failures, key)
 			continue
 		}
 		delete(reconciler.warnings, key)
@@ -158,12 +168,20 @@ func (reconciler *ImportReconciler) Apply(
 		}
 		key := importKey(spec)
 		if current, exists := reconciler.active[key]; exists &&
-			equalImportSpec(current.spec, spec) {
+			equalImportSpec(current.spec, spec) &&
+			importProxyRunning(current.proxy) {
 			continue
 		}
 		proxy, err := reconciler.factory.Start(ctx, spec)
 		if err != nil {
-			closeActiveImports(started)
+			reconciler.failures[key] = ImportStatus{
+				Mapping:  spec.Mapping.Name,
+				Workload: spec.Container.Name,
+				Port:     spec.Mapping.TargetPort,
+				State:    ImportFailed,
+				Error:    err.Error(),
+			}
+			reconciler.rollbackStartedImports(started, err)
 			return nil, fmt.Errorf(
 				"start import %q on workload %s localhost:%d: %w",
 				spec.Mapping.Name,
@@ -173,6 +191,7 @@ func (reconciler *ImportReconciler) Apply(
 			)
 		}
 		started[key] = activeImport{spec: spec, proxy: proxy}
+		delete(reconciler.failures, key)
 	}
 
 	next := make(map[string]activeImport, len(specs))
@@ -182,7 +201,8 @@ func (reconciler *ImportReconciler) Apply(
 		}
 		key := importKey(spec)
 		if current, exists := reconciler.active[key]; exists &&
-			equalImportSpec(current.spec, spec) {
+			equalImportSpec(current.spec, spec) &&
+			importProxyRunning(current.proxy) {
 			next[key] = current
 			continue
 		}
@@ -204,6 +224,41 @@ func (reconciler *ImportReconciler) Desired() []portforward.Mapping {
 	return append([]portforward.Mapping(nil), reconciler.desired...)
 }
 
+func (reconciler *ImportReconciler) Statuses() []ImportStatus {
+	reconciler.mutex.Lock()
+	defer reconciler.mutex.Unlock()
+	statuses := make([]ImportStatus, 0, len(reconciler.active))
+	for _, current := range reconciler.active {
+		status := ImportStatus{
+			Mapping:  current.spec.Mapping.Name,
+			Workload: current.spec.Container.Name,
+			Port:     current.spec.Mapping.TargetPort,
+			State:    ImportListening,
+		}
+		if !importProxyRunning(current.proxy) {
+			status.State = ImportExited
+			status.Error = "import proxy exited unexpectedly"
+		}
+		statuses = append(statuses, status)
+	}
+	for key, failure := range reconciler.failures {
+		if _, active := reconciler.active[key]; active {
+			continue
+		}
+		statuses = append(statuses, failure)
+	}
+	sort.Slice(statuses, func(left int, right int) bool {
+		if statuses[left].Mapping != statuses[right].Mapping {
+			return statuses[left].Mapping < statuses[right].Mapping
+		}
+		if statuses[left].Workload != statuses[right].Workload {
+			return statuses[left].Workload < statuses[right].Workload
+		}
+		return statuses[left].Port < statuses[right].Port
+	})
+	return statuses
+}
+
 func (reconciler *ImportReconciler) Close() error {
 	reconciler.mutex.Lock()
 	defer reconciler.mutex.Unlock()
@@ -213,6 +268,7 @@ func (reconciler *ImportReconciler) Close() error {
 	}
 	reconciler.active = make(map[string]activeImport)
 	reconciler.warnings = make(map[string]Warning)
+	reconciler.failures = make(map[string]ImportStatus)
 	return result
 }
 
@@ -227,6 +283,30 @@ func (reconciler *ImportReconciler) pruneWarnings(
 		separator := strings.LastIndexByte(key, '\x00')
 		if separator < 0 || !desiredNames[key[separator+1:]] {
 			delete(reconciler.warnings, key)
+		}
+	}
+}
+
+func (reconciler *ImportReconciler) pruneExited() {
+	for key, current := range reconciler.active {
+		if importProxyRunning(current.proxy) {
+			continue
+		}
+		_ = current.proxy.Close()
+		delete(reconciler.active, key)
+	}
+}
+
+func (reconciler *ImportReconciler) pruneFailures(
+	specs []ImportProxySpec,
+) {
+	desiredKeys := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		desiredKeys[importKey(spec)] = true
+	}
+	for key := range reconciler.failures {
+		if !desiredKeys[key] {
+			delete(reconciler.failures, key)
 		}
 	}
 }
@@ -314,9 +394,10 @@ func importProbeError(spec ImportProxySpec, cause error) error {
 
 func importWarning(spec ImportProxySpec) Warning {
 	return Warning{
-		Code:   "port_import_conflict",
-		Port:   spec.Mapping.TargetPort,
-		Source: spec.Container.Name,
+		Code:    "port_import_conflict",
+		Mapping: spec.Mapping.Name,
+		Port:    spec.Mapping.TargetPort,
+		Source:  spec.Container.Name,
 		Message: fmt.Sprintf(
 			"workload stopped because localhost:%d is reserved by import %q",
 			spec.Mapping.TargetPort,
@@ -325,8 +406,34 @@ func importWarning(spec ImportProxySpec) Warning {
 	}
 }
 
-func closeActiveImports(active map[string]activeImport) {
-	for _, current := range active {
-		_ = current.proxy.Close()
+func (reconciler *ImportReconciler) rollbackStartedImports(
+	started map[string]activeImport,
+	cause error,
+) {
+	for key, current := range started {
+		rollbackErr := fmt.Errorf(
+			"proxy start rolled back because another import failed: %w",
+			cause,
+		)
+		rollbackErr = errors.Join(rollbackErr, current.proxy.Close())
+		reconciler.failures[key] = ImportStatus{
+			Mapping:  current.spec.Mapping.Name,
+			Workload: current.spec.Container.Name,
+			Port:     current.spec.Mapping.TargetPort,
+			State:    ImportFailed,
+			Error:    rollbackErr.Error(),
+		}
+	}
+}
+
+func importProxyRunning(proxy ImportProxy) bool {
+	if proxy == nil {
+		return false
+	}
+	select {
+	case <-proxy.Done():
+		return false
+	default:
+		return true
 	}
 }

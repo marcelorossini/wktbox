@@ -278,9 +278,46 @@ connection.close()
   fi
 }
 
+wait_host_port_open() {
+  local port="$1"
+  local deadline=$((SECONDS + 30))
+  while ((SECONDS < deadline)); do
+    if python3 -c '
+import socket
+import sys
+
+connection = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
+connection.close()
+' "$port" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail_with_diagnostics "host port $port did not open"
+}
+
+wait_host_port_closed() {
+  local port="$1"
+  local deadline=$((SECONDS + 30))
+  while ((SECONDS < deadline)); do
+    if ! python3 -c '
+import socket
+import sys
+
+connection = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
+connection.close()
+' "$port" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail_with_diagnostics "host port $port remained open"
+}
+
 read -r \
   host_http \
   host_raw \
+  host_same \
   host_conflict \
   host_batch_free \
   host_temp \
@@ -293,7 +330,7 @@ read -r \
 import socket
 
 sockets = []
-for _ in range(11):
+for _ in range(12):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     sockets.append(listener)
@@ -311,10 +348,12 @@ docker build -q -f "$project_root/images/webtop/Dockerfile" \
 
 start_host_http "$host_http" "host-http"
 start_host_raw_echo "$host_raw"
+start_host_http "$host_same" "host-same-port"
 start_host_http "$host_conflict" "host-conflict"
 start_host_http "$host_batch_free" "host-batch-free"
 start_host_http "$host_temp" "host-temp"
 wait_host_http "$host_http" "host-http"
+wait_host_http "$host_same" "host-same-port"
 wait_host_http "$host_conflict" "host-conflict"
 
 "$wktbox" --path "$workspace_a" up >/dev/null
@@ -338,6 +377,11 @@ wait_inner_http "$workspace_a" workload-b 31081 host-http
 wait_inner_raw "$workspace_a" workload-a 31082
 wait_inner_raw "$workspace_a" workload-b 31082
 
+# Positional syntax preserves the same port number from host to every workload.
+"$wktbox" --path "$workspace_a" port import "$host_same" >/dev/null
+wait_inner_http "$workspace_a" workload-a "$host_same" host-same-port
+wait_inner_http "$workspace_a" workload-b "$host_same" host-same-port
+
 # An existing workload listener rejects the entire import batch without residue.
 "$wktbox" --path "$workspace_a" exec -- \
   docker run -d --name existing-conflict python:3.14-alpine \
@@ -359,39 +403,66 @@ assert_inner_port_closed "$workspace_a" workload-a 31084
   docker rm -f existing-conflict >/dev/null
 
 # A temporary import can be removed and closes every workload listener.
-"$wktbox" --path "$workspace_a" port import \
-  --map "temporary=127.0.0.1:$host_temp:31085" >/dev/null
-wait_inner_http "$workspace_a" workload-a 31085 host-temp
-"$wktbox" --path "$workspace_a" port remove temporary >/dev/null
-assert_inner_port_closed "$workspace_a" workload-a 31085
-
-# A workload that appears later with a reserved localhost port is stopped and
-# leaves a durable structured warning.
-docker stop "wktbox-$id_a-loopback-1" >/dev/null
-docker exec "wktbox-$id_a-webtop-1" \
-  docker run -d --name future-conflict python:3.14-alpine \
-  python -m http.server 31081 --bind 127.0.0.1 >/dev/null
-[[ "$(docker exec "wktbox-$id_a-webtop-1" \
-  docker inspect future-conflict --format '{{.State.Running}}')" == "true" ]] ||
-  fail_with_diagnostics "future conflict was not running before reconciliation"
-future_ready_deadline=$((SECONDS + 30))
-future_ready=false
-while ((SECONDS < future_ready_deadline)); do
-  if docker exec "wktbox-$id_a-webtop-1" \
-    docker exec future-conflict python -c '
-import socket
-
-connection = socket.create_connection(("127.0.0.1", 31081), timeout=1)
-connection.close()
-' >/dev/null 2>&1; then
-    future_ready=true
+docker exec "wktbox-$id_a-loopback-1" sh -c \
+  'flock -x /run/wktbox-port-transaction/transaction.lock sh -c "echo locked; sleep 3"' \
+  >"$test_root/transaction-lock.out" &
+transaction_holder_pid="$!"
+server_pids+=("$transaction_holder_pid")
+transaction_lock_deadline=$((SECONDS + 10))
+while ((SECONDS < transaction_lock_deadline)); do
+  if grep -q locked "$test_root/transaction-lock.out"; then
     break
   fi
   sleep 1
 done
-[[ "$future_ready" == true ]] ||
+grep -q locked "$test_root/transaction-lock.out" ||
+  fail_with_diagnostics "sidecar could not acquire the shared transaction lock"
+transaction_started=$SECONDS
+"$wktbox" --path "$workspace_a" port import \
+  --map "temporary=127.0.0.1:$host_temp:31085" >/dev/null
+wait "$transaction_holder_pid"
+transaction_elapsed=$((SECONDS - transaction_started))
+((transaction_elapsed >= 2)) ||
+  fail_with_diagnostics "host transaction ignored the sidecar-held lock"
+wait_inner_http "$workspace_a" workload-a 31085 host-temp
+"$wktbox" --path "$workspace_a" port remove temporary >/dev/null
+assert_inner_port_closed "$workspace_a" workload-a 31085
+
+# A live Docker start event detects a future workload conflict, stops the
+# workload, and leaves a durable structured warning.
+docker pause "wktbox-$id_a-loopback-1" >/dev/null
+docker exec "wktbox-$id_a-webtop-1" \
+  docker run -d --name future-conflict python:3.14-alpine \
+  python -u -c '
+import socket
+
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("127.0.0.1", 31081))
+server.listen()
+print("READY", flush=True)
+while True:
+    connection, _ = server.accept()
+    connection.close()
+' >/dev/null
+future_ready_deadline=$((SECONDS + 30))
+future_bound=false
+while ((SECONDS < future_ready_deadline)); do
+  future_running="$(docker exec "wktbox-$id_a-webtop-1" \
+    docker inspect future-conflict --format '{{.State.Running}}' 2>/dev/null || true)"
+  if [[ "$future_running" == "true" ]] &&
+    docker exec "wktbox-$id_a-webtop-1" \
+      docker logs future-conflict 2>/dev/null | grep -q READY; then
+    future_bound=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$future_bound" != true ]]; then
+  docker unpause "wktbox-$id_a-loopback-1" >/dev/null 2>&1 || true
   fail_with_diagnostics "future conflict did not occupy localhost:31081"
-docker start "wktbox-$id_a-loopback-1" >/dev/null
+fi
+docker unpause "wktbox-$id_a-loopback-1" >/dev/null
 future_deadline=$((SECONDS + 60))
 future_stopped=false
 while ((SECONDS < future_deadline)); do
@@ -475,13 +546,21 @@ wait_published_http "$publish_http" box-a
 
 # Stop closes runtime listeners but preserves desired state; restart restores
 # both directions.
+relay_port="$(printf '%s' "$status_a" | python3 -c '
+import json
+import sys
+
+print(json.load(sys.stdin)["ports"]["webtopHttp"] + 4)
+')"
+wait_host_port_open "$relay_port"
 "$wktbox" --path "$workspace_a" stop >/dev/null
 if curl --fail --silent --max-time 1 \
   "http://127.0.0.1:$publish_http/marker.txt" >/dev/null 2>&1; then
   fail_with_diagnostics "publication remained open after stop"
 fi
+wait_host_port_closed "$relay_port"
 stopped_status="$("$wktbox" --path "$workspace_a" --json status)"
-for mapping in host-http host-raw published-http published-raw; do
+for mapping in host-http host-raw "import-$host_same" published-http published-raw; do
   json_has_mapping "$stopped_status" "$mapping" ||
     fail_with_diagnostics "stop lost desired mapping $mapping"
 done

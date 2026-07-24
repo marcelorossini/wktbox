@@ -13,6 +13,7 @@ import (
 
 	"wktbox/internal/compose"
 	"wktbox/internal/lock"
+	"wktbox/internal/loopback"
 	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/sandbox"
@@ -22,8 +23,10 @@ import (
 type fakeRelayLifecycle struct {
 	ensureCalls []portforward.RelayProcessOptions
 	stopCalls   []portforward.RelayProcessOptions
+	probeCalls  []portforward.RelayProcessOptions
 	ensureErr   error
 	stopErr     error
+	probeErr    error
 }
 
 func (relay *fakeRelayLifecycle) Ensure(
@@ -40,6 +43,14 @@ func (relay *fakeRelayLifecycle) Stop(
 ) error {
 	relay.stopCalls = append(relay.stopCalls, options)
 	return relay.stopErr
+}
+
+func (relay *fakeRelayLifecycle) Probe(
+	_ context.Context,
+	options portforward.RelayProcessOptions,
+) error {
+	relay.probeCalls = append(relay.probeCalls, options)
+	return relay.probeErr
 }
 
 type portManagerFixture struct {
@@ -169,6 +180,125 @@ func TestImportActivationRaceRollsBackRelayFilesRuntimeAndState(t *testing.T) {
 	}
 }
 
+func TestPortMappingRollbackFailureMarksBoxDegraded(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	fixture.backend.portApplyErrors = []error{
+		errors.New("candidate activation failed"),
+		errors.New("previous imports could not be restored"),
+	}
+
+	_, err := fixture.manager.ImportPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{testImportMapping("api", 1234, 1234)},
+	)
+	if err == nil ||
+		!strings.Contains(err.Error(), "candidate activation failed") ||
+		!strings.Contains(err.Error(), "previous imports could not be restored") {
+		t.Fatalf("error = %v", err)
+	}
+	saved := loadPortFixtureState(t, fixture.store).Boxes[fixture.record.ID]
+	if saved.Status != state.Error {
+		t.Fatalf("box status = %s; want %s", saved.Status, state.Error)
+	}
+	if saved.PortRuntimeError == "" {
+		t.Fatal("rollback failure detail was not persisted")
+	}
+	if _, err := fixture.manager.PortMappings(
+		context.Background(),
+		fixture.record.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	saved = loadPortFixtureState(t, fixture.store).Boxes[fixture.record.ID]
+	if saved.Status != state.Error || saved.PortRuntimeError == "" {
+		t.Fatalf("rollback degradation was lost after reconciliation: %#v", saved)
+	}
+
+	fixture.backend.portApplyErrors = nil
+	if err := fixture.manager.Restart(
+		context.Background(),
+		fixture.record.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	saved = loadPortFixtureState(t, fixture.store).Boxes[fixture.record.ID]
+	if saved.Status != state.Ready || saved.PortRuntimeError != "" {
+		t.Fatalf("successful restart did not clear degradation: %#v", saved)
+	}
+}
+
+func TestPortMappingTransactionBlocksBackgroundReconciliation(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	activationStarted := make(chan struct{})
+	releaseActivation := make(chan struct{})
+	fixture.backend.portApplyHook = func(
+		ctx context.Context,
+		_ compose.Project,
+	) error {
+		close(activationStarted)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-releaseActivation:
+			return nil
+		}
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := fixture.manager.ImportPorts(
+			context.Background(),
+			fixture.record.ID,
+			[]portforward.Mapping{testImportMapping("api", 1234, 1234)},
+		)
+		result <- err
+	}()
+
+	select {
+	case <-activationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("port mapping activation did not start")
+	}
+	if config := readPortFixtureFile(
+		t,
+		fixture.record.PortConfigPath,
+	); !strings.Contains(string(config), `"api"`) {
+		t.Fatalf("candidate config was not live during activation: %s", config)
+	}
+	lockPath := filepath.Join(
+		filepath.Dir(fixture.record.ComposePath),
+		"port-transaction",
+		"transaction.lock",
+	)
+	lockCtx, cancel := context.WithTimeout(context.Background(), 75*time.Millisecond)
+	defer cancel()
+	unlock, err := lock.Acquire(lockCtx, lockPath)
+	if err == nil {
+		_ = unlock()
+		t.Fatal("background reconciliation entered an uncommitted transaction")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("acquire transaction lock error = %v", err)
+	}
+
+	close(releaseActivation)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("port mapping transaction did not finish")
+	}
+	unlock, err = lock.Acquire(context.Background(), lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPublicationHostConflictRejectsWholeBatchBeforeMutation(t *testing.T) {
 	fixture := newPortManagerFixture(t)
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
@@ -232,6 +362,153 @@ func TestMultipleImportsActivateAsOneBatch(t *testing.T) {
 	}
 }
 
+func TestPortMappingsReportsRelayFailureAsDegraded(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	if _, err := fixture.manager.ImportPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{testImportMapping("api", 1234, 1234)},
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixture.backend.loopback = loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+		Imports: []loopback.ImportStatus{{
+			Mapping:  "api",
+			Workload: "web",
+			Port:     1234,
+			State:    loopback.ImportListening,
+		}},
+	}
+	fixture.relay.probeErr = errors.New("relay connection refused")
+
+	got, err := fixture.manager.PortMappings(
+		context.Background(),
+		fixture.record.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 ||
+		got[0].State != portforward.StateDegraded ||
+		!strings.Contains(got[0].Error, "relay connection refused") {
+		t.Fatalf("mappings = %#v", got)
+	}
+}
+
+func TestPortMappingsReportsExitedImportProxyAsDegraded(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	if _, err := fixture.manager.ImportPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{testImportMapping("api", 1234, 1234)},
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixture.backend.loopback = loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+		Imports: []loopback.ImportStatus{{
+			Mapping:  "api",
+			Workload: "web",
+			Port:     1234,
+			State:    loopback.ImportExited,
+			Error:    "import proxy exited unexpectedly",
+		}},
+	}
+
+	got, err := fixture.manager.PortMappings(
+		context.Background(),
+		fixture.record.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 ||
+		got[0].State != portforward.StateDegraded ||
+		!strings.Contains(got[0].Error, "proxy exited") {
+		t.Fatalf("mappings = %#v", got)
+	}
+}
+
+func TestPortMappingsReportsMissingPublicationBridgeAsDegraded(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	if _, err := fixture.manager.PublishPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{
+			testPublishMapping("api", reservePortFixturePort(t), 8000),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixture.backend.managed[0].PortBridgeRunning = true
+
+	got, err := fixture.manager.PortMappings(
+		context.Background(),
+		fixture.record.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 ||
+		got[0].State != portforward.StateDegraded ||
+		!strings.Contains(got[0].Error, "portbridge") {
+		t.Fatalf("mappings = %#v", got)
+	}
+}
+
+func TestPortMappingsKeepsHealthyImportReadyWhenPublicationBridgeFails(
+	t *testing.T,
+) {
+	fixture := newPortManagerFixture(t)
+	if _, err := fixture.manager.ImportPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{testImportMapping("host-api", 1234, 1234)},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.manager.PublishPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{
+			testPublishMapping("box-api", reservePortFixturePort(t), 8000),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixture.backend.managed[0].PortBridgeRunning = false
+	fixture.backend.loopback = loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+		Imports: []loopback.ImportStatus{{
+			Mapping:  "host-api",
+			Workload: "web",
+			Port:     1234,
+			State:    loopback.ImportListening,
+		}},
+	}
+
+	got, err := fixture.manager.PortMappings(
+		context.Background(),
+		fixture.record.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := make(map[string]portforward.ObservedMapping)
+	for _, mapping := range got {
+		states[mapping.Name] = mapping
+	}
+	if states["host-api"].State != portforward.StateReady ||
+		states["host-api"].Error != "" {
+		t.Fatalf("healthy import = %#v", states["host-api"])
+	}
+	if states["box-api"].State != portforward.StateDegraded ||
+		!strings.Contains(states["box-api"].Error, "portbridge") {
+		t.Fatalf("failed publication = %#v", states["box-api"])
+	}
+}
+
 func TestRemoveLastImportClosesProxiesAndHostRelay(t *testing.T) {
 	fixture := newPortManagerFixture(t)
 	if _, err := fixture.manager.ImportPorts(
@@ -264,6 +541,54 @@ func TestRemoveLastImportClosesProxiesAndHostRelay(t *testing.T) {
 			got,
 			len(fixture.relay.stopCalls),
 			len(fixture.backend.portApplyCalls),
+		)
+	}
+}
+
+func TestRemoveMappingFromStoppedBoxOnlyUpdatesDesiredFilesAndState(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	record := fixture.record
+	record.Status = state.Stopped
+	record.PortMappings = []portforward.Mapping{
+		testImportMapping("api", 1234, 1234),
+	}
+	config, err := portforward.RenderConfig(record.PortMappings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record.PortConfigPath, config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	saveState(t, fixture.store, record)
+	fixture.backend.managed[0].State = compose.Stopped
+	fixture.backend.managed[0].Healthy = false
+
+	got, err := fixture.manager.RemovePortMappings(
+		context.Background(),
+		record.ID,
+		[]string{"api"},
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("mappings = %#v", got)
+	}
+	saved := loadPortFixtureState(t, fixture.store).Boxes[record.ID]
+	if saved.Status != state.Stopped || len(saved.PortMappings) != 0 {
+		t.Fatalf("saved box = %#v", saved)
+	}
+	if len(fixture.backend.portApplyCalls) != 0 ||
+		len(fixture.backend.portRuntimeCalls) != 0 ||
+		len(fixture.relay.ensureCalls) != 0 ||
+		len(fixture.relay.stopCalls) != 0 {
+		t.Fatalf(
+			"stopped runtime changed: import=%d publish=%d relay ensure=%d stop=%d",
+			len(fixture.backend.portApplyCalls),
+			len(fixture.backend.portRuntimeCalls),
+			len(fixture.relay.ensureCalls),
+			len(fixture.relay.stopCalls),
 		)
 	}
 }

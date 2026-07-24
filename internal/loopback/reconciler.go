@@ -131,6 +131,14 @@ func (reconciler *Reconciler) SetWarnings(warnings []Warning) Status {
 	return cloneStatus(reconciler.status)
 }
 
+func (reconciler *Reconciler) SetImports(imports []ImportStatus) Status {
+	reconciler.mutex.Lock()
+	defer reconciler.mutex.Unlock()
+	reconciler.status.Imports = cloneImportStatuses(imports)
+	reconciler.status.UpdatedAt = reconciler.now().UTC()
+	return cloneStatus(reconciler.status)
+}
+
 func (reconciler *Reconciler) Close(ctx context.Context) error {
 	reconciler.mutex.Lock()
 	if !reconciler.closed {
@@ -212,7 +220,17 @@ func cloneStatus(status Status) Status {
 		status.Routes[index].Sources = cloneStrings(status.Routes[index].Sources)
 	}
 	status.Warnings = cloneWarnings(status.Warnings)
+	status.Imports = cloneImportStatuses(status.Imports)
 	return status
+}
+
+func cloneImportStatuses(values []ImportStatus) []ImportStatus {
+	if values == nil {
+		return nil
+	}
+	result := make([]ImportStatus, len(values))
+	copy(result, values)
+	return result
 }
 
 func cloneStrings(values []string) []string {

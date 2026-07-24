@@ -4,8 +4,9 @@
 
 As portas normais do projeto continuam privadas a cada box. Use os comandos
 explícitos `wktbox port` somente quando o tráfego precisar cruzar a fronteira
-com o host real. A box deve existir e estar pronta; execute `wktbox up` antes.
-O recurso encaminha somente TCP.
+com o host real. A box deve existir. Para adicionar importações ou publicações,
+ela precisa estar pronta; listar e remover mapeamentos também funcionam com a
+box parada. O recurso encaminha somente TCP.
 
 ## Trazer uma porta do host para o localhost dos containers
 
@@ -106,10 +107,20 @@ com a box. Os workloads internos continuam obedecendo à própria política de
 restart do Docker; use uma política como `unless-stopped` quando um serviço
 precisar voltar automaticamente com a box.
 
+Com a box parada, `wktbox port list` mostra os mapeamentos como `stopped` e
+`wktbox port remove` altera apenas a configuração desejada, sem iniciar a box.
+Com a box ativa, o estado observado verifica o `portbridge`, o relay autenticado,
+o fluxo de eventos e os processos de proxy de cada workload.
+
 Nomes aceitam letras minúsculas, números, ponto, sublinhado e hífen. Eles são
 únicos na box, mesmo entre importação e publicação. Toda alteração é atômica:
 erro de sintaxe, nome duplicado, porta ocupada, falha de relay, Compose ou
 persistência restaura o estado anterior.
+Um lock compartilhado impede o reconciliador em segundo plano de ler uma
+configuração candidata antes do commit. Se o próprio rollback do runtime
+falhar, a box fica persistida como degradada, nunca como pronta. Um
+`wktbox restart <box>` ou `wktbox up` bem-sucedido reconcilia o runtime e limpa
+essa degradação.
 
 Veja [Segurança](security.md) e o
 [guia de diagnóstico](../troubleshooting.md).

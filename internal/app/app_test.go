@@ -208,6 +208,21 @@ func TestPortOperationsRequireReadyBoxAndDelegateByID(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "wktbox up") {
 		t.Fatalf("error = %v", err)
 	}
+	stopped := state.BoxRecord{
+		ID:     "a4f8c9137d2b",
+		Status: state.Stopped,
+	}
+	if _, err := service.PortMappings(context.Background(), stopped); err != nil {
+		t.Fatalf("list stopped box mappings: %v", err)
+	}
+	if _, err := service.RemovePortMappings(
+		context.Background(),
+		stopped,
+		[]string{"api"},
+		"",
+	); err != nil {
+		t.Fatalf("remove stopped box mapping: %v", err)
+	}
 }
 
 type discoveryRunner struct {

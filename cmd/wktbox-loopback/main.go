@@ -248,6 +248,10 @@ func probeDNS(ctx context.Context) error {
 }
 
 func runSidecar(ctx context.Context) error {
+	transactionLockPath := os.Getenv("WKTBOX_PORT_TRANSACTION_LOCK")
+	if transactionLockPath == "" {
+		return errors.New("WKTBOX_PORT_TRANSACTION_LOCK is required")
+	}
 	source, err := loopback.NewDockerSourceFromEnv()
 	if err != nil {
 		return err
@@ -263,11 +267,12 @@ func runSidecar(ctx context.Context) error {
 		Stopper: source,
 	})
 	daemon := loopback.NewDaemon(loopback.DaemonOptions{
-		Source:           source,
-		Reconciler:       reconciler,
-		Imports:          imports,
-		LoadPortMappings: loadMappings,
-		Logf:             log.Printf,
+		Source:                  source,
+		Reconciler:              reconciler,
+		Imports:                 imports,
+		LoadPortMappings:        loadMappings,
+		PortTransactionLockPath: transactionLockPath,
+		Logf:                    log.Printf,
 	})
 	controller := persistentController{
 		Controller: daemon,

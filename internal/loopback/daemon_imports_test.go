@@ -68,6 +68,7 @@ func TestDaemonSyncImportsUsesTransactionalMode(t *testing.T) {
 type fakeImportManager struct {
 	modes    []loopback.ImportApplyMode
 	warnings []loopback.Warning
+	statuses []loopback.ImportStatus
 }
 
 func (manager *fakeImportManager) Preflight(
@@ -86,6 +87,10 @@ func (manager *fakeImportManager) Apply(
 ) ([]loopback.Warning, error) {
 	manager.modes = append(manager.modes, mode)
 	return manager.warnings, nil
+}
+
+func (manager *fakeImportManager) Statuses() []loopback.ImportStatus {
+	return append([]loopback.ImportStatus(nil), manager.statuses...)
 }
 
 func (manager *fakeImportManager) Close() error {

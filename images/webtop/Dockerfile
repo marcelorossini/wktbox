@@ -6,6 +6,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY internal/interconnect ./internal/interconnect
+COPY internal/lock ./internal/lock
 COPY internal/loopback ./internal/loopback
 COPY internal/portforward ./internal/portforward
 COPY cmd/wktbox-loopback ./cmd/wktbox-loopback

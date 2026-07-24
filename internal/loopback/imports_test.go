@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"wktbox/internal/loopback"
@@ -210,6 +211,162 @@ func TestFutureConflictStopsWorkloadAndKeepsDesiredImport(t *testing.T) {
 	}
 }
 
+func TestImportApplyRestartsProxyThatExitedUnexpectedly(t *testing.T) {
+	factory := &fakeImportFactory{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: factory,
+	})
+	workloads := []loopback.Container{{
+		ID: "a", Name: "api", PID: 42, Running: true,
+	}}
+	mappings := []portforward.Mapping{importMapping("postgres", 5432)}
+
+	if _, err := reconciler.Apply(
+		context.Background(),
+		workloads,
+		mappings,
+		loopback.ImportApplyEvent,
+	); err != nil {
+		t.Fatal(err)
+	}
+	factory.exit("api/postgres")
+	if _, err := reconciler.Apply(
+		context.Background(),
+		workloads,
+		mappings,
+		loopback.ImportApplyEvent,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(
+		factory.started,
+		[]string{"api/postgres", "api/postgres"},
+	) {
+		t.Fatalf("started proxies = %#v", factory.started)
+	}
+}
+
+func TestImportStatusesReportUnexpectedProxyExit(t *testing.T) {
+	factory := &fakeImportFactory{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: factory,
+	})
+	if _, err := reconciler.Apply(
+		context.Background(),
+		[]loopback.Container{{
+			ID: "a", Name: "api", PID: 42, Running: true,
+		}},
+		[]portforward.Mapping{importMapping("postgres", 5432)},
+		loopback.ImportApplyEvent,
+	); err != nil {
+		t.Fatal(err)
+	}
+	statuses := reconciler.Statuses()
+	if len(statuses) != 1 ||
+		statuses[0].Mapping != "postgres" ||
+		statuses[0].Workload != "api" ||
+		statuses[0].State != loopback.ImportListening {
+		t.Fatalf("statuses = %#v", statuses)
+	}
+
+	factory.exit("api/postgres")
+	statuses = reconciler.Statuses()
+	if len(statuses) != 1 ||
+		statuses[0].State != loopback.ImportExited ||
+		statuses[0].Error == "" {
+		t.Fatalf("statuses after exit = %#v", statuses)
+	}
+}
+
+func TestImportStatusesRetainFailedProxyRestart(t *testing.T) {
+	factory := &fakeImportFactory{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: factory,
+	})
+	workloads := []loopback.Container{{
+		ID: "a", Name: "api", PID: 42, Running: true,
+	}}
+	mappings := []portforward.Mapping{importMapping("postgres", 5432)}
+	if _, err := reconciler.Apply(
+		context.Background(),
+		workloads,
+		mappings,
+		loopback.ImportApplyEvent,
+	); err != nil {
+		t.Fatal(err)
+	}
+	factory.exit("api/postgres")
+	factory.startError = map[string]error{
+		"api/postgres": errors.New("restart process failed"),
+	}
+
+	if _, err := reconciler.Apply(
+		context.Background(),
+		workloads,
+		mappings,
+		loopback.ImportApplyEvent,
+	); err == nil {
+		t.Fatal("failed proxy restart unexpectedly succeeded")
+	}
+	statuses := reconciler.Statuses()
+	if len(statuses) != 1 ||
+		statuses[0].Mapping != "postgres" ||
+		statuses[0].State != loopback.ImportFailed ||
+		!strings.Contains(statuses[0].Error, "restart process failed") {
+		t.Fatalf("statuses = %#v", statuses)
+	}
+}
+
+func TestImportStatusesRetainEveryProxyRolledBackAfterBatchRestartFailure(
+	t *testing.T,
+) {
+	factory := &fakeImportFactory{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: factory,
+	})
+	workloads := []loopback.Container{
+		{ID: "a", Name: "api", PID: 42, Running: true},
+		{ID: "b", Name: "worker", PID: 43, Running: true},
+	}
+	mappings := []portforward.Mapping{importMapping("postgres", 5432)}
+	if _, err := reconciler.Apply(
+		context.Background(),
+		workloads,
+		mappings,
+		loopback.ImportApplyEvent,
+	); err != nil {
+		t.Fatal(err)
+	}
+	factory.exit("api/postgres")
+	factory.exit("worker/postgres")
+	factory.startError = map[string]error{
+		"worker/postgres": errors.New("worker restart failed"),
+	}
+
+	if _, err := reconciler.Apply(
+		context.Background(),
+		workloads,
+		mappings,
+		loopback.ImportApplyEvent,
+	); err == nil {
+		t.Fatal("multi-workload proxy restart unexpectedly succeeded")
+	}
+	statuses := reconciler.Statuses()
+	if len(statuses) != 2 {
+		t.Fatalf("statuses = %#v", statuses)
+	}
+	if statuses[0].Workload != "api" ||
+		statuses[0].State != loopback.ImportFailed ||
+		!strings.Contains(statuses[0].Error, "rolled back") {
+		t.Fatalf("rolled back proxy status = %#v", statuses[0])
+	}
+	if statuses[1].Workload != "worker" ||
+		statuses[1].State != loopback.ImportFailed ||
+		!strings.Contains(statuses[1].Error, "worker restart failed") {
+		t.Fatalf("failed proxy status = %#v", statuses[1])
+	}
+}
+
 func importMapping(name string, port uint16) portforward.Mapping {
 	return portforward.Mapping{
 		Name:          name,
@@ -225,6 +382,7 @@ type fakeImportFactory struct {
 	startError map[string]error
 	started    []string
 	closed     []string
+	proxies    map[string]*fakeImportProxy
 }
 
 func (factory *fakeImportFactory) Probe(
@@ -243,20 +401,45 @@ func (factory *fakeImportFactory) Start(
 		return nil, err
 	}
 	factory.started = append(factory.started, key)
-	return fakeImportProxy{
+	if factory.proxies == nil {
+		factory.proxies = make(map[string]*fakeImportProxy)
+	}
+	proxy := &fakeImportProxy{
+		done: make(chan struct{}),
 		close: func() {
 			factory.closed = append(factory.closed, key)
 		},
-	}, nil
+	}
+	factory.proxies[key] = proxy
+	return proxy, nil
+}
+
+func (factory *fakeImportFactory) exit(key string) {
+	factory.proxies[key].terminate()
 }
 
 type fakeImportProxy struct {
+	done  chan struct{}
 	close func()
+	once  sync.Once
 }
 
-func (proxy fakeImportProxy) Close() error {
-	proxy.close()
+func (proxy *fakeImportProxy) Done() <-chan struct{} {
+	return proxy.done
+}
+
+func (proxy *fakeImportProxy) Close() error {
+	proxy.once.Do(func() {
+		close(proxy.done)
+		proxy.close()
+	})
 	return nil
+}
+
+func (proxy *fakeImportProxy) terminate() {
+	proxy.once.Do(func() {
+		close(proxy.done)
+	})
 }
 
 func specKey(spec loopback.ImportProxySpec) string {

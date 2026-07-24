@@ -75,3 +75,17 @@ func TestValidateSetRejectsDuplicateImportTarget(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestValidateRejectsPublicationOutsideCanonicalLoopbackAddresses(t *testing.T) {
+	err := portforward.Validate(portforward.Mapping{
+		Name:          "api",
+		Direction:     portforward.Publish,
+		SourceAddress: "127.0.0.2",
+		SourcePort:    18000,
+		TargetPort:    8000,
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "127.0.0.1 or ::1") {
+		t.Fatalf("error = %v", err)
+	}
+}

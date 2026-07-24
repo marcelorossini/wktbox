@@ -103,6 +103,15 @@ func Validate(mapping Mapping) error {
 			mapping.SourceAddress,
 		)
 	}
+	if mapping.Direction == Publish &&
+		mapping.SourceAddress != "127.0.0.1" &&
+		mapping.SourceAddress != "::1" {
+		return fmt.Errorf(
+			"mapping %q publication address %q must be 127.0.0.1 or ::1",
+			mapping.Name,
+			mapping.SourceAddress,
+		)
+	}
 	if mapping.SourcePort == 0 {
 		return fmt.Errorf("mapping %q has invalid source port 0", mapping.Name)
 	}

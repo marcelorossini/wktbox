@@ -88,6 +88,7 @@ func (factory *processImportFactory) Start(
 		writer.Close()
 		return nil, fmt.Errorf("start import proxy: %w", err)
 	}
+	proxy := newProcessImportProxy(command)
 	_ = writer.Close()
 	ready := make(chan error, 1)
 	go func() {
@@ -104,26 +105,45 @@ func (factory *processImportFactory) Start(
 	select {
 	case err := <-ready:
 		if err != nil {
-			_ = command.Process.Kill()
-			_ = command.Wait()
+			_ = proxy.Close()
 			return nil, fmt.Errorf("wait for import proxy readiness: %w", err)
 		}
 	case <-ctx.Done():
-		_ = command.Process.Kill()
-		_ = command.Wait()
+		_ = proxy.Close()
 		return nil, ctx.Err()
 	case <-timer.C:
-		_ = command.Process.Kill()
-		_ = command.Wait()
+		_ = proxy.Close()
 		return nil, errors.New("import proxy readiness timed out")
 	}
-	return &processImportProxy{command: command}, nil
+	return proxy, nil
 }
 
 type processImportProxy struct {
-	command *exec.Cmd
-	once    sync.Once
-	err     error
+	command  *exec.Cmd
+	once     sync.Once
+	done     chan struct{}
+	mutex    sync.Mutex
+	waitErr  error
+	closeErr error
+}
+
+func newProcessImportProxy(command *exec.Cmd) *processImportProxy {
+	proxy := &processImportProxy{
+		command: command,
+		done:    make(chan struct{}),
+	}
+	go func() {
+		waitErr := command.Wait()
+		proxy.mutex.Lock()
+		proxy.waitErr = waitErr
+		proxy.mutex.Unlock()
+		close(proxy.done)
+	}()
+	return proxy
+}
+
+func (proxy *processImportProxy) Done() <-chan struct{} {
+	return proxy.done
 }
 
 func (proxy *processImportProxy) Close() error {
@@ -132,7 +152,10 @@ func (proxy *processImportProxy) Close() error {
 			return
 		}
 		killErr := proxy.command.Process.Kill()
-		waitErr := proxy.command.Wait()
+		<-proxy.done
+		proxy.mutex.Lock()
+		waitErr := proxy.waitErr
+		proxy.mutex.Unlock()
 		if errors.Is(killErr, os.ErrProcessDone) {
 			killErr = nil
 		}
@@ -140,9 +163,9 @@ func (proxy *processImportProxy) Close() error {
 		if errors.As(waitErr, &exitError) {
 			waitErr = nil
 		}
-		proxy.err = errors.Join(killErr, waitErr)
+		proxy.closeErr = errors.Join(killErr, waitErr)
 	})
-	return proxy.err
+	return proxy.closeErr
 }
 
 type ImportProxyRunOptions struct {
