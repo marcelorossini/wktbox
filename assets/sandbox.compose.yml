@@ -96,6 +96,11 @@ services:
     image: ${WKTBOX_WEBTOP_IMAGE}
     command: ["wktbox-loopback", "serve"]
     network_mode: service:webtop
+    pid: service:docker
+    cap_add:
+      - SYS_ADMIN
+    extra_hosts:
+      - host.docker.internal:host-gateway
     depends_on:
       docker:
         condition: service_healthy
@@ -112,6 +117,10 @@ services:
       io.wktbox.version: ${WKTBOX_VERSION}
     volumes:
       - docker-certs:/certs:ro
+      - type: bind
+        source: ${PORT_CONFIG_PATH}
+        target: /run/wktbox-ports/ports.json
+        read_only: true
     healthcheck:
       test:
         - CMD-SHELL
@@ -119,6 +128,30 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+
+  portbridge:
+    image: ${WKTBOX_WEBTOP_IMAGE}
+    profiles: ["ports"]
+    command: ["wktbox-loopback", "publish-serve"]
+    depends_on:
+      docker:
+        condition: service_healthy
+    environment:
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+      WKTBOX_PORT_CONFIG: /run/wktbox-ports/ports.json
+    labels:
+      io.wktbox.managed: "true"
+      io.wktbox.box-id: ${WKTBOX_ID}
+      io.wktbox.worktree: ${WORKTREE_PATH}
+      io.wktbox.version: ${WKTBOX_VERSION}
+    volumes:
+      - docker-certs:/certs:ro
+      - type: bind
+        source: ${PORT_CONFIG_PATH}
+        target: /run/wktbox-ports/ports.json
+        read_only: true
 
   gateway:
     image: ${WKTBOX_GATEWAY_IMAGE}

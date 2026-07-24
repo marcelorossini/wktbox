@@ -82,6 +82,32 @@ func TestUpEnablesOnlyConfiguredGatewayProfile(t *testing.T) {
 	}
 }
 
+func TestUpIncludesPortOverrideAndEnablesPortsProfile(t *testing.T) {
+	runner := &recordingRunner{}
+	client := compose.NewClient(runner)
+	err := client.Up(context.Background(), compose.Project{
+		Name:                "wktbox-a4f8c9137d2b",
+		Files:               []string{"/state/a/compose.yml", "/state/a/ports.override.yml"},
+		EnvFile:             "/state/a/sandbox.env",
+		PortMappingsEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"docker", "compose",
+		"-p", "wktbox-a4f8c9137d2b",
+		"--env-file", "/state/a/sandbox.env",
+		"-f", "/state/a/compose.yml",
+		"-f", "/state/a/ports.override.yml",
+		"--profile", "ports",
+		"up", "-d", "--wait",
+	}
+	if !reflect.DeepEqual(runner.calls[0], want) {
+		t.Fatalf("call = %#v\nwant = %#v", runner.calls[0], want)
+	}
+}
+
 func TestStartUsesPortableUpWait(t *testing.T) {
 	runner := &recordingRunner{}
 	client := compose.NewClient(runner)

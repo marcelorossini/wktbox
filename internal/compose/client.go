@@ -26,10 +26,11 @@ const (
 )
 
 type Project struct {
-	Name           string
-	Files          []string
-	EnvFile        string
-	GatewayEnabled bool
+	Name                string
+	Files               []string
+	EnvFile             string
+	GatewayEnabled      bool
+	PortMappingsEnabled bool
 }
 
 type ContainerStatus struct {
@@ -605,6 +606,9 @@ func (client Client) run(
 	}
 	if project.GatewayEnabled {
 		arguments = append(arguments, "--profile", "gateway")
+	}
+	if project.PortMappingsEnabled {
+		arguments = append(arguments, "--profile", "ports")
 	}
 	arguments = append(arguments, action...)
 	result, err := client.runner.Run(ctx, "docker", arguments...)

@@ -12,6 +12,7 @@ import (
 	"wktbox/internal/config"
 	"wktbox/internal/environment"
 	"wktbox/internal/gitbridge"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/sandbox"
 )
@@ -27,8 +28,77 @@ type composeService struct {
 	Command     []string          `yaml:"command"`
 	Hostname    string            `yaml:"hostname"`
 	NetworkMode string            `yaml:"network_mode"`
+	PID         string            `yaml:"pid"`
+	CapAdd      []string          `yaml:"cap_add"`
+	ExtraHosts  []string          `yaml:"extra_hosts"`
 	Profiles    []string          `yaml:"profiles"`
 	Ports       []string          `yaml:"ports"`
+}
+
+func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
+	spec := testSpec()
+	spec.PortMappings = []portforward.Mapping{
+		{
+			Name:          "postgres",
+			Direction:     portforward.Import,
+			SourceAddress: "127.0.0.1",
+			SourcePort:    5432,
+			TargetPort:    5432,
+		},
+		{
+			Name:          "api",
+			Direction:     portforward.Publish,
+			SourceAddress: "127.0.0.1",
+			SourcePort:    18000,
+			TargetPort:    8000,
+		},
+	}
+
+	files, err := sandbox.Render(t.TempDir(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files.PortConfigPath == "" || files.PortOverridePath == "" {
+		t.Fatalf("files = %#v", files)
+	}
+	if body := readFile(t, files.PortConfigPath); !strings.Contains(body, `"postgres"`) ||
+		!strings.Contains(body, `"api"`) {
+		t.Fatalf("port config:\n%s", body)
+	}
+	if body := readFile(t, files.PortOverridePath); !strings.Contains(
+		body,
+		"127.0.0.1:18000:18000",
+	) {
+		t.Fatalf("port override:\n%s", body)
+	}
+	if body := readFile(t, files.SandboxEnvPath); !strings.Contains(
+		body,
+		`PORT_CONFIG_PATH="`,
+	) {
+		t.Fatalf("sandbox env:\n%s", body)
+	}
+
+	document := readCompose(t, files.ComposePath)
+	portbridge := document.Services["portbridge"]
+	if !reflect.DeepEqual(portbridge.Profiles, []string{"ports"}) ||
+		!reflect.DeepEqual(
+			portbridge.Command,
+			[]string{"wktbox-loopback", "publish-serve"},
+		) {
+		t.Fatalf("portbridge = %#v", portbridge)
+	}
+	loopbackService := document.Services["loopback"]
+	if loopbackService.PID != "service:docker" ||
+		!reflect.DeepEqual(loopbackService.CapAdd, []string{"SYS_ADMIN"}) ||
+		!reflect.DeepEqual(
+			loopbackService.ExtraHosts,
+			[]string{"host.docker.internal:host-gateway"},
+		) {
+		t.Fatalf("loopback namespace access = %#v", loopbackService)
+	}
+	if strings.Contains(readFile(t, files.ComposePath), "/var/run/docker.sock") {
+		t.Fatal("host Docker socket leaked into port runtime")
+	}
 }
 
 func TestRenderMountsWorkspaceInDockerAndWebtop(t *testing.T) {

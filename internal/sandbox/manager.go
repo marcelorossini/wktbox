@@ -12,6 +12,7 @@ import (
 	"wktbox/internal/compose"
 	"wktbox/internal/lock"
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/state"
 )
@@ -67,6 +68,12 @@ func (manager Manager) ensure(
 		return state.BoxRecord{}, err
 	}
 	existing, exists := current.Boxes[spec.ID]
+	if exists && spec.PortMappings == nil {
+		spec.PortMappings = append(
+			[]portforward.Mapping(nil),
+			existing.PortMappings...,
+		)
+	}
 	if spec.Ports.Size == 0 && exists && existing.Ports.Size != 0 {
 		spec.Ports = existing.Ports
 	}
@@ -117,6 +124,9 @@ func (manager Manager) ensure(
 	record.SandboxEnvPath = files.SandboxEnvPath
 	record.ProjectEnvOverridePath = files.ProjectEnvOverridePath
 	record.GatewayEnabled = spec.Config.Gateway.Enabled
+	record.PortConfigPath = files.PortConfigPath
+	record.PortOverridePath = files.PortOverridePath
+	record.PortMappings = append([]portforward.Mapping(nil), spec.PortMappings...)
 	record.CreatedAt = createdAt
 	record.LastUsedAt = manager.now().UTC()
 
@@ -499,11 +509,15 @@ func projectFor(record state.BoxRecord) compose.Project {
 	if record.ProjectEnvOverridePath != "" {
 		files = append(files, record.ProjectEnvOverridePath)
 	}
+	if record.PortOverridePath != "" {
+		files = append(files, record.PortOverridePath)
+	}
 	return compose.Project{
-		Name:           record.ProjectName,
-		Files:          files,
-		EnvFile:        record.SandboxEnvPath,
-		GatewayEnabled: record.GatewayEnabled,
+		Name:                record.ProjectName,
+		Files:               files,
+		EnvFile:             record.SandboxEnvPath,
+		GatewayEnabled:      record.GatewayEnabled,
+		PortMappingsEnabled: len(record.PortMappings) != 0,
 	}
 }
 

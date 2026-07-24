@@ -58,6 +58,8 @@ type BoxRecord struct {
 	SandboxEnvPath         string                `json:"sandboxEnvPath"`
 	ProjectEnvOverridePath string                `json:"projectEnvOverridePath,omitempty"`
 	GatewayEnabled         bool                  `json:"gatewayEnabled,omitempty"`
+	PortConfigPath         string                `json:"portConfigPath,omitempty"`
+	PortOverridePath       string                `json:"portOverridePath,omitempty"`
 	PortMappings           []portforward.Mapping `json:"portMappings,omitempty"`
 	CreatedAt              time.Time             `json:"createdAt"`
 	LastUsedAt             time.Time             `json:"lastUsedAt"`

@@ -15,6 +15,7 @@ import (
 
 	"wktbox/assets"
 	"wktbox/internal/gateway"
+	"wktbox/internal/portforward"
 )
 
 var boxIDPattern = regexp.MustCompile(`^[a-f0-9]{12}$`)
@@ -50,6 +51,8 @@ func Render(directory string, spec Spec) (Files, error) {
 		ComposePath:       filepath.Join(directory, "compose.yml"),
 		SandboxEnvPath:    filepath.Join(directory, "sandbox.env"),
 		GatewayConfigPath: filepath.Join(directory, "gateway.conf"),
+		PortConfigPath:    filepath.Join(directory, "ports.json"),
+		PortOverridePath:  filepath.Join(directory, "ports.override.yml"),
 	}
 	changed, err := writeProtected(files.ComposePath, assets.SandboxCompose)
 	if err != nil {
@@ -73,6 +76,33 @@ func Render(directory string, spec Spec) (Files, error) {
 		return Files{}, err
 	}
 	files.Changed = files.Changed || changed
+	portConfig, err := portforward.RenderConfig(spec.PortMappings)
+	if err != nil {
+		return Files{}, err
+	}
+	changed, err = writeProtected(files.PortConfigPath, portConfig)
+	if err != nil {
+		return Files{}, err
+	}
+	files.Changed = files.Changed || changed
+	portOverride, err := portforward.RenderComposeOverride(spec.PortMappings)
+	if err != nil {
+		return Files{}, err
+	}
+	if portOverride != nil {
+		changed, err = writeProtected(files.PortOverridePath, portOverride)
+		if err != nil {
+			return Files{}, err
+		}
+		files.Changed = files.Changed || changed
+	} else if err := os.Remove(files.PortOverridePath); err == nil {
+		files.Changed = true
+		files.PortOverridePath = ""
+	} else if os.IsNotExist(err) {
+		files.PortOverridePath = ""
+	} else {
+		return Files{}, fmt.Errorf("remove stale port override: %w", err)
+	}
 
 	overridePath := filepath.Join(directory, "project-env.override.yml")
 	if spec.ProjectEnv.Mount ||
@@ -128,6 +158,7 @@ func renderSandboxEnv(spec Spec, gatewayConfigPath string) []byte {
 		"PORT_GATEWAY":         strconv.Itoa(spec.Ports.Gateway()),
 		"PORT_HTTP":            strconv.Itoa(spec.Ports.HTTP()),
 		"PORT_HTTPS":           strconv.Itoa(spec.Ports.HTTPS()),
+		"PORT_IMPORT_RELAY":    strconv.Itoa(spec.Ports.ImportRelay()),
 		"PORT_SSH":             strconv.Itoa(spec.Ports.SSH()),
 		"PUID":                 strconv.Itoa(spec.PUID),
 		"SHM_SIZE":             spec.Config.Webtop.SHMSize,
@@ -139,6 +170,10 @@ func renderSandboxEnv(spec Spec, gatewayConfigPath string) []byte {
 		"WKTBOX_WEBTOP_IMAGE":  spec.Config.Runtime.WebtopImage,
 		"WORKTREE_PATH":        spec.Worktree,
 	}
+	values["PORT_CONFIG_PATH"] = filepath.Join(
+		filepath.Dir(gatewayConfigPath),
+		"ports.json",
+	)
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
