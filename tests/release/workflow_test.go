@@ -160,6 +160,7 @@ func TestWorkflowBuildsImmutableMultiArchImagesAndPromotesLatestLast(t *testing.
 			"--build-arg VERSION=",
 			"--build-arg REVISION=",
 			"--build-arg SOURCE_URL=",
+			"--provenance=false",
 			"push-by-digest=true",
 			"containerimage.digest",
 			"imagetools inspect",
