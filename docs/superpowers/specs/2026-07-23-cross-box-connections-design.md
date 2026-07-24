@@ -91,19 +91,24 @@ labels. For each member, Wktbox attaches the external `docker` and `webtop`
 containers at runtime. The DinD container receives the alias
 `<box-id>.wktbox`. Runtime attachment avoids Compose's automatic `docker`
 service alias on the shared network, which would make the private
-`DOCKER_HOST=tcp://docker:2376` name ambiguous.
+`DOCKER_HOST=tcp://docker:2376` name ambiguous. The external DinD hostname is
+also unique per box; its TLS certificate still includes the private `docker`
+service name.
 
 Each box also runs a required `interconnect` sidecar in
 `network_mode: service:docker`. It provides a DNS forwarding listener on the
-DinD bridge gateway, while Docker's own embedded DNS on `127.0.0.11` remains
-the upstream resolver. The DinD daemon uses the gateway listener as the default
-DNS server for workload containers. Queries for another member's
+private address selected by the box's default route, while Docker's own
+embedded DNS on `127.0.0.11` remains the upstream resolver. The DinD daemon
+discovers and uses the same address as the default DNS server for workload
+containers; it does not assume a fixed Docker bridge subnet. Queries for
+another member's
 `<box-id>.wktbox` alias therefore resolve through the host Docker network; all
 other queries continue through the existing Docker DNS path.
 
 The sidecar is present even when a box has no connection so a later `connect`
-does not require restarting the DinD daemon. It binds only to the inner bridge
-gateway, not to the host or Webtop loopback.
+does not require restarting the DinD daemon. It binds only to the box's private
+default-network address, not to the host, Webtop loopback, or shared connection
+bridge.
 
 The external Compose project remains private by default. Only an explicit
 `connect` operation attaches it to a managed shared bridge.
@@ -222,8 +227,10 @@ dedicated `connections` command is the canonical topology view.
 ## Security
 
 A connection intentionally weakens network isolation only between its explicit
-members. It does not share Docker APIs, TLS certificates, volumes, images,
-container namespaces, or the host Docker socket.
+members. It does not share TLS certificates, volumes, images, container
+namespaces, or the host Docker socket. A peer can reach the DinD listener at
+the network layer, but each daemon's separate TLS authority rejects the other
+box's client certificate.
 
 Any process in a member Webtop or workload container can attempt to reach every
 port published by another member's DinD. Wktbox adds no authentication or
