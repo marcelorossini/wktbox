@@ -38,7 +38,7 @@
 - Produces: JSON fields `urls.browserCdp` and `ports.browserCdp`
 - Consumes: existing `ports.Block.Start`, `ports.Block.Size`, and `state.BoxRecord.Ports`
 
-- [ ] **Step 1: Write failing port and output tests**
+- [x] **Step 1: Write failing port and output tests**
 
 Extend `TestReserveReturnsFirstAvailableBlock`:
 
@@ -70,7 +70,7 @@ if !strings.Contains(got, "Browser CDP: http://localhost:23004") {
 }
 ```
 
-- [ ] **Step 2: Run targeted tests and verify RED**
+- [x] **Step 2: Run targeted tests and verify RED**
 
 Run:
 
@@ -84,7 +84,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
 Expected: compilation fails because `BrowserCDP` does not exist, followed by
 missing JSON/human assertions after the method is introduced.
 
-- [ ] **Step 3: Implement the public contract**
+- [x] **Step 3: Implement the public contract**
 
 Add to `internal/ports/allocator.go`:
 
@@ -133,13 +133,13 @@ if url := BrowserCDPURL(box); url != "" {
 
 immediately after the Webtop URL in `humanBox`.
 
-- [ ] **Step 4: Run targeted tests and verify GREEN**
+- [x] **Step 4: Run targeted tests and verify GREEN**
 
 Run the command from Step 2.
 
 Expected: `ok` for `wktbox/internal/ports` and `wktbox/internal/output`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/ports/allocator.go internal/ports/allocator_test.go \
@@ -166,7 +166,7 @@ git commit -m "feat: expor porta CDP no status"
 - Produces: Webtop health contract `curl ... http://127.0.0.1:9223/json/version`
 - Produces: `compose.Status.Ready()` requiring healthy Webtop
 
-- [ ] **Step 1: Write failing render and validation tests**
+- [x] **Step 1: Write failing render and validation tests**
 
 In `TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts`, require:
 
@@ -201,7 +201,7 @@ func TestRenderRejectsPortBlockWithoutBrowserOffset(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Write failing readiness tests**
+- [x] **Step 2: Write failing readiness tests**
 
 Change ready fixtures to use `"Health":"healthy"` for Webtop. Add:
 
@@ -227,7 +227,7 @@ Update managed-container fixtures so the Webtop status contains `(healthy)`,
 and add a counterpart with `(unhealthy)` that asserts `ManagedProject.Healthy`
 is false.
 
-- [ ] **Step 3: Run targeted tests and verify RED**
+- [x] **Step 3: Run targeted tests and verify RED**
 
 Run:
 
@@ -241,7 +241,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
 Expected: failures for the missing CDP mapping/env/healthcheck and Webtop
 readiness still accepting `starting`.
 
-- [ ] **Step 4: Implement render and readiness**
+- [x] **Step 4: Implement render and readiness**
 
 Change port-block validation to:
 
@@ -287,7 +287,7 @@ calculate it from the `(healthy)` Docker status text. Include it in the final
 Update `readyComposeStatus()` and all explicit ready Webtop fixtures to
 `Health: "healthy"`.
 
-- [ ] **Step 5: Run targeted tests and full Go tests**
+- [x] **Step 5: Run targeted tests and full Go tests**
 
 Run:
 
@@ -301,7 +301,7 @@ make test
 
 Expected: all commands exit `0`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add assets/sandbox.compose.yml internal/sandbox/render.go \
@@ -335,7 +335,7 @@ git commit -m "feat: publicar CDP e exigir navegador saudavel"
 - Test-only overrides: `WKTBOX_CHROMIUM_BIN`, `WKTBOX_CHROMIUM_PROFILE`,
   `WKTBOX_CHROMIUM_WRAPPER`, `WKTBOX_CHROMIUM_RESTART_DELAY`
 
-- [ ] **Step 1: Write the failing image behavior test**
+- [x] **Step 1: Write the failing image behavior test**
 
 Create `tests/images/chromium_test.sh` with a temporary fake Chromium binary
 that records every argument. Execute `images/webtop/wrapped-chromium
@@ -361,7 +361,7 @@ OnlyShowIn=XFCE;
 X-GNOME-Autostart-enabled=true
 ```
 
-- [ ] **Step 2: Run the image test and verify RED**
+- [x] **Step 2: Run the image test and verify RED**
 
 Run:
 
@@ -371,7 +371,7 @@ bash tests/images/chromium_test.sh
 
 Expected: failure because the three image assets do not exist.
 
-- [ ] **Step 3: Implement the wrapper**
+- [x] **Step 3: Implement the wrapper**
 
 Create a Bash wrapper which:
 
@@ -396,7 +396,7 @@ exec "$browser_bin" "${browser_args[@]}" "$@"
 
 Use `mkdir -p "$profile"` before cleanup and quote every path.
 
-- [ ] **Step 4: Implement the session supervisor and autostart**
+- [x] **Step 4: Implement the session supervisor and autostart**
 
 The supervisor must launch the wrapper as a child, trap `TERM`, `INT`, and
 `HUP`, forward termination to the current child, wait for it, then sleep for
@@ -416,7 +416,7 @@ Terminal=false
 StartupNotify=false
 ```
 
-- [ ] **Step 5: Install assets in the image**
+- [x] **Step 5: Install assets in the image**
 
 Add Dockerfile copies:
 
@@ -442,7 +442,7 @@ images-test:
 	bash tests/images/labels_test.sh
 ```
 
-- [ ] **Step 6: Run tests and build the image**
+- [x] **Step 6: Run tests and build the image**
 
 Run:
 
@@ -455,7 +455,7 @@ make images-test
 Expected: the behavior test passes, the Webtop image builds, and OCI label
 tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add images/webtop/wrapped-chromium images/webtop/chromium-supervisor \
@@ -481,7 +481,7 @@ git commit -m "feat: manter Chromium grafico supervisionado"
 - Consumes: public fields `browserCdp`, port offset `+4`, container port `9222`
 - Produces: English canonical guidance and Portuguese entry-point guidance
 
-- [ ] **Step 1: Write a failing documentation contract test**
+- [x] **Step 1: Write a failing documentation contract test**
 
 Add a docs test that requires canonical English docs to contain:
 
@@ -499,7 +499,7 @@ required := map[string][]string{
 Normalize whitespace with `strings.Join(strings.Fields(body), " ")`, then fail
 for every missing phrase.
 
-- [ ] **Step 2: Run the docs test and verify RED**
+- [x] **Step 2: Run the docs test and verify RED**
 
 Run:
 
@@ -512,7 +512,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
 
 Expected: failures listing all undocumented phrases.
 
-- [ ] **Step 3: Document usage and security**
+- [x] **Step 3: Document usage and security**
 
 Document this discovery flow:
 
@@ -529,7 +529,7 @@ Document the fixed container port, high host offset, loopback-only publication,
 and the fact that any local process reaching CDP can read/control pages,
 cookies, and browser storage.
 
-- [ ] **Step 4: Run documentation tests**
+- [x] **Step 4: Run documentation tests**
 
 Run:
 
@@ -539,7 +539,7 @@ make docs-check
 
 Expected: all documentation tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md README.pt-BR.md docs/configuration.md \
@@ -562,7 +562,7 @@ git commit -m "feat: documentar acesso CDP por box"
 - Proves: distinct ports, host usability, visible page creation, restart after
   closure, and loopback-only binding
 
-- [ ] **Step 1: Add reusable CDP polling**
+- [x] **Step 1: Add reusable CDP polling**
 
 Add to `tests/e2e/assert-isolation.sh`:
 
@@ -582,7 +582,7 @@ wait_for_cdp() {
 }
 ```
 
-- [ ] **Step 2: Extend two-worktree assertions**
+- [x] **Step 2: Extend two-worktree assertions**
 
 After reading both statuses, extract and assert:
 
@@ -622,7 +622,7 @@ if not any(page.get("type") == "page" and
 '
 ```
 
-- [ ] **Step 3: Prove automatic relaunch**
+- [x] **Step 3: Prove automatic relaunch**
 
 Read the browser PID from the Webtop by matching
 `--remote-debugging-port=9222`, terminate it, wait for CDP, then require a
@@ -642,7 +642,7 @@ test "$old_browser_pid" != "$new_browser_pid"
 
 Verify the box returns to `ready` and box B remains ready.
 
-- [ ] **Step 4: Run RED against pre-feature behavior**
+- [x] **Step 4: Run RED against pre-feature behavior**
 
 Before production implementation is complete, run:
 
@@ -655,7 +655,7 @@ exist. If Tasks 1–3 are already implemented in sequence, confirm the new
 assertions would have failed on commit `3122936` with
 `git show 3122936:tests/e2e/two_worktrees.sh`.
 
-- [ ] **Step 5: Run the completed E2E and full verification**
+- [x] **Step 5: Run the completed E2E and full verification**
 
 Run:
 
@@ -671,7 +671,7 @@ git diff --check
 Expected: every command exits `0`; E2E prints
 `wktbox E2E passed: two linked worktrees remained isolated`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tests/e2e/two_worktrees.sh tests/e2e/assert-isolation.sh
@@ -682,11 +682,11 @@ git commit -m "feat: validar Chromium CDP em duas boxes"
 
 ## Completion audit
 
-- [ ] `git status --short` is clean.
-- [ ] `git log --oneline main..HEAD` contains the design, implementation plan,
+- [x] `git status --short` is clean.
+- [x] `git log --oneline main..HEAD` contains the design, implementation plan,
   and implementation commits.
-- [ ] `main` does not contain any of those commits.
-- [ ] The worktree remains present for user review.
-- [ ] The branch is not merged into `main`.
-- [ ] Graphiti contains the durable mapping between Webtop Chromium, CDP 9222,
+- [x] `main` does not contain any of those commits.
+- [x] The worktree remains present for user review.
+- [x] The branch is not merged into `main`.
+- [x] Graphiti contains the durable mapping between Webtop Chromium, CDP 9222,
   host offset `+4`, status fields, and lifecycle supervision.
