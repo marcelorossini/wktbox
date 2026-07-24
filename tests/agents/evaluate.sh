@@ -245,6 +245,7 @@ run_codex() {
       --add-dir "$(dirname "$sample_home")" \
       --sandbox workspace-write \
       --ephemeral \
+      --skip-git-repo-check \
       --ignore-user-config \
       --output-schema "$schema" \
       --output-last-message "$result" \

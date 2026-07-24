@@ -25,4 +25,10 @@ if [[ "$actual" != "$fixture_bin/wktbox" ]]; then
   exit 1
 fi
 
+if ! grep -q -- '--skip-git-repo-check' \
+  "$project_root/tests/agents/evaluate.sh"; then
+  printf 'Codex evaluation does not support plain directories\n' >&2
+  exit 1
+fi
+
 printf 'agent harness shell environment: PASS\n'
