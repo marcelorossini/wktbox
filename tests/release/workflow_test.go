@@ -163,6 +163,7 @@ func TestWorkflowBuildsImmutableMultiArchImagesAndPromotesLatestLast(t *testing.
 			"push-by-digest=true",
 			"containerimage.digest",
 			"imagetools inspect",
+			"head -n 1 || true",
 			"digest mismatch",
 			"imagetools create",
 		} {
