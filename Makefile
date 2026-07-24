@@ -7,7 +7,7 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: agent-evaluate agent-scorer-test agent-skill-test build e2e fmt images install-test release release-build release-verify spike test test-race vet
+.PHONY: agent-evaluate agent-scorer-test agent-skill-test build docs-check e2e fmt images install-test release release-build release-verify spike test test-race vet
 
 agent-evaluate:
 	bash tests/agents/evaluate.sh installed \
@@ -24,6 +24,9 @@ agent-skill-test:
 build:
 	mkdir -p bin
 	$(GO_CONTAINER) go build -o bin/wktbox ./cmd/wktbox
+
+docs-check:
+	$(GO_CONTAINER) go test ./tests -run Docs -count=1
 
 fmt:
 	$(GO_CONTAINER) sh -c 'gofmt -w $$(find . -name "*.go" -not -path "./.git/*")'

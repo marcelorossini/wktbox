@@ -1,55 +1,75 @@
-# Modelo de segurança
+# Security model
 
-Wktbox oferece isolamento operacional entre worktrees confiáveis. Ele separa o
-daemon Docker, containers, redes, imagens, caches e volumes de cada box. Não é
-uma fronteira para executar código hostil.
+Wktbox provides operational isolation between boxes running trusted
+development code. It is not a security boundary for hostile workloads.
 
-## Propriedades
+Every box includes privileged Docker-in-Docker and a writable checkout mount.
+Those properties are fundamental to the current developer workflow. Do not
+treat Wktbox as a virtual machine, tenant boundary, or malware sandbox.
 
-- cada box tem um DinD próprio;
-- o socket `/var/run/docker.sock` do host não é montado no Webtop nem no DinD;
-- a API do DinD usa TLS interno em `docker:2376` e não é publicada no host;
-- portas externas próprias do Webtop e gateway são vinculadas a `127.0.0.1`;
-- rotas automáticas de aplicações são vinculadas somente a `127.0.0.1` e
-  `::1` dentro do namespace de rede do Webtop, nunca no host;
-- o sidecar consulta a API DinD com os certificados TLS read-only e usa um
-  socket Unix privado, `/run/wktbox-loopback/control.sock`, modo `0600`;
-- o project env é montado como somente leitura;
-- arquivos externos gerados usam diretório `0700` e arquivos `0600`;
-- o estado guarda caminhos e metadados, não o conteúdo do project env;
-- argumentos `--env` são redigidos em diagnósticos estruturados.
+## Isolation properties
 
-## Limites e riscos
+- Each box has a separate DinD daemon, containers, networks, images, caches,
+  volumes, Webtop, and loopback namespace.
+- The host `/var/run/docker.sock` is not mounted into Webtop or DinD.
+- The internal DinD API uses TLS at `docker:2376` and is not published to the
+  host.
+- Host Webtop and gateway ports bind to `127.0.0.1`.
+- Automatic application routes bind only to `127.0.0.1` and `::1` inside the
+  Webtop network namespace.
+- The sidecar receives read-only DinD certificates and uses a private Unix
+  socket at `/run/wktbox-loopback/control.sock` with mode `0600`.
+- Project environment files are mounted read-only.
+- Generated state directories use mode `0700`; sensitive files use `0600`.
+- State contains paths and metadata, not project environment contents.
+- Process environment values supplied through `--env` are redacted from
+  structured diagnostics.
 
-O DinD usa `privileged: true`. A worktree é montada com escrita no Webtop e no
-DinD. Processos da box podem ler e alterar arquivos do projeto e podem ler o
-project env, mesmo que não consigam gravá-lo. Um Compose interno também controla
-o daemon exclusivo e pode acessar tudo que estiver montado nele.
+These controls reduce accidental interference between trusted checkouts. They
+do not make privileged containers safe for adversarial code.
 
-Uma porta TCP publicada no DinD fica acessível a qualquer processo que
-compartilhe o namespace do Webtop. Isso é intencional para desenvolvimento, mas
-não adiciona autenticação à aplicação. UDP não é encaminhado. Conflitos de bind
-são mostrados no status e não fazem fallback para interfaces externas.
+## Privileged DinD and writable mounts
 
-O Webtop escuta somente em loopback, mas a imagem não configura autenticação
-própria do Wktbox. Qualquer processo ou usuário capaz de acessar o loopback do
-host pode tentar abrir a porta atribuída. O gateway tem a mesma fronteira e
-encaminha hosts configurados sem autenticação.
+The DinD container runs with `privileged: true`. Project processes can control
+their dedicated daemon and everything mounted into it. Webtop and DinD can read
+and modify the checkout. They can read a mounted project environment file even
+when that file is read-only.
 
-`git.mode: mounted` adiciona uma montagem com escrita dos metadados Git comuns
-ao Webtop. Isso permite Git dentro da box, mas amplia o impacto de comandos,
-hooks e ferramentas sobre o repositório. O modo padrão `host` evita essa
-montagem.
+A compromised or malicious project may alter source, generated files, Git data
+that is deliberately mounted, and credentials exposed to project processes.
+Use a dedicated virtual machine or another hardened backend when code,
+dependencies, or users are not trusted.
 
-TLS protege a API DinD contra acesso acidental fora dos containers da box. Nem
-o Webtop nem o sidecar montam `/var/run/docker.sock` do host. Isso não
-transforma um container privilegiado em VM. Limites declarados em `resources`
-ainda não são aplicados no schema v1.
+## Networking
 
-## Segredos
+A TCP port published in DinD is reachable by processes sharing the Webtop
+namespace. Automatic routing adds no application authentication. Bind
+conflicts are reported and never fall back to external interfaces. UDP is not
+forwarded.
 
-Prefira um arquivo externo por worktree e `--env-file`. Não versione
-`.wktbox.local.yml`, project env ou artefatos sensíveis. Não inclua segredos em
-nomes de arquivos, argumentos de comando ou valores que a aplicação interna
-imprima. Para ameaças entre usuários, código de terceiros ou workloads hostis,
-use uma VM ou outro backend com uma fronteira de segurança dedicada.
+The Webtop and optional gateway listen on host loopback, but Wktbox does not add
+its own user authentication. Any local user or process able to connect to the
+assigned loopback port may attempt to access them.
+
+Internal TLS protects the DinD API from accidental access outside the box
+containers. It does not transform a privileged container into a VM.
+
+## Git modes
+
+The default `git.mode: host` does not mount common Git metadata. In
+`git.mode: mounted`, Wktbox mounts that metadata writable into Webtop so in-box
+Git can work. Hooks and tools may then change the shared repository. DinD still
+does not receive the Git metadata mount.
+
+## Secrets
+
+Prefer one external project environment file per checkout and pass it with
+`--env-file`. Do not commit `.wktbox.local.yml`, project environment files, or
+generated credentials. Avoid secrets in file names, command arguments, and
+application output.
+
+Resource fields in schema v1 are not enforced and must not be treated as
+availability or security limits.
+
+See [Configuration](configuration.md) and
+[Troubleshooting](troubleshooting.md).

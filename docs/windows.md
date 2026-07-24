@@ -1,47 +1,51 @@
-# Windows e Docker Desktop
+# Windows and Docker Desktop
 
-O binário é compilado para Windows `amd64` e `arm64`. O runtime esperado é
-Docker Desktop com containers Linux, Docker Compose v2 e uma unidade local
-compartilhada com o Docker.
+Wktbox publishes Windows amd64 and arm64 executables. The runtime requires
+Docker Desktop using Linux containers, Docker Compose v2, and a local drive
+shared with Docker.
 
-Antes de criar a primeira box:
+Install with PowerShell as described in [Installation](installation.md), then
+check the checkout:
 
 ```powershell
 wktbox doctor --path "C:\worktrees\feature auth"
 ```
 
-Caminhos locais com espaços são preservados pela descoberta, normalização,
-geração de argumentos e build cruzado. Caminhos UNC (`\\servidor\share`) são
-rejeitados explicitamente no MVP; use uma letra de unidade local compartilhada.
-O teste runtime deste repositório foi executado em Linux, portanto Docker
-Desktop, NTFS, bind mounts aninhados, watch de arquivos e desempenho ainda
-precisam ser validados no host Windows real.
+Local paths containing spaces are preserved. UNC paths such as
+`\\server\share` are rejected in schema v1; use a shared local drive letter.
 
-O localhost automático depende do namespace de rede Linux compartilhado por
-`network_mode: service:webtop`. No Windows, isso roda dentro do backend de
-containers Linux do Docker Desktop; não usa o namespace de rede nativo do
-Windows. Assim, `localhost:5173` significa o loopback visto pelo navegador e
-pelos processos dentro do Webtop. O acesso pelo navegador do host continua
-pelas portas próprias do Webtop ou pelo gateway opcional.
+## Runtime networking
 
-No Windows, o Webtop usa `PUID=1000` e `PGID=1000`. Isso não garante que toda
-imagem do Compose interno produza permissões convenientes no host. Dependências
-pesadas, caches e bancos devem preferir volumes Docker internos em vez da
-worktree.
+Automatic localhost uses the Linux
+`network_mode: service:webtop` namespace within Docker Desktop. It does not use
+the native Windows network namespace. Inside Webtop, `localhost:5173` therefore
+means the box-local Linux loopback. The host browser reaches Webtop through its
+assigned host loopback port or the optional gateway.
 
-O modo Git padrão é `git.mode: host`. Ele evita montar o diretório Git comum da
-linked worktree no desktop Linux. `git.mode: mounted` é experimental no Windows:
-hooks, symlinks, case-insensitivity e permissões precisam de validação específica
-antes de uso.
+The Webtop container uses `PUID=1000` and `PGID=1000`. This does not guarantee
+ideal ownership for files produced by every project image on NTFS. Prefer
+Docker volumes for databases, dependency caches, and other large write-heavy
+data.
 
-Se `doctor` falhar:
+## Git and filesystems
 
-- confirme que Docker Desktop está em containers Linux;
-- confirme `docker version` e `docker compose version`;
-- compartilhe a unidade que contém a worktree e o project env;
-- habilite containers privilegiados conforme a política da máquina;
-- verifique portas de loopback, o status do sidecar e espaço livre;
-- evite UNC e caminhos não acessíveis ao Docker Desktop.
+The default `git.mode: host` avoids mounting shared Git metadata into the Linux
+desktop. `git.mode: mounted` is experimental on Windows: validate hooks,
+symlinks, case sensitivity, permissions, antivirus behavior, and file watching
+before depending on it.
 
-O modelo continua sendo de isolamento operacional, com DinD privilegiado e
-worktree gravável. Consulte [Segurança](security.md).
+Docker Desktop, NTFS, bind mounts nested through DinD, and large dependency
+trees may have different performance and watch behavior from native Linux.
+
+## Doctor failures
+
+- Confirm Docker Desktop is running in Linux containers mode.
+- Run `docker version` and `docker compose version`.
+- Share the local drive containing the checkout and project environment file.
+- Confirm organization policy allows privileged containers.
+- Check loopback ports and free disk space.
+- Avoid UNC paths and paths inaccessible to Docker Desktop.
+
+The trust model is unchanged on Windows: privileged DinD and a writable
+checkout provide operational isolation, not a hostile-code security boundary.
+See [Security](security.md) and [Troubleshooting](troubleshooting.md).
