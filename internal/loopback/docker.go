@@ -102,6 +102,19 @@ func (source *DockerSource) Close() error {
 	return source.client.Close()
 }
 
+func (source *DockerSource) Stop(ctx context.Context, id string) error {
+	timeout := 10
+	_, err := source.client.ContainerStop(
+		ctx,
+		id,
+		client.ContainerStopOptions{Timeout: &timeout},
+	)
+	if err != nil {
+		return fmt.Errorf("stop inner Docker container %s: %w", id, err)
+	}
+	return nil
+}
+
 func containerFromInspect(inspect container.InspectResponse) Container {
 	result := Container{
 		ID:   inspect.ID,
@@ -109,6 +122,10 @@ func containerFromInspect(inspect container.InspectResponse) Container {
 	}
 	if inspect.State != nil {
 		result.Running = inspect.State.Running
+		result.PID = inspect.State.Pid
+	}
+	if inspect.Config != nil {
+		result.Labels = inspect.Config.Labels
 	}
 	if inspect.NetworkSettings == nil {
 		return result

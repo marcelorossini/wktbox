@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 
 	"wktbox/internal/interconnect"
 	"wktbox/internal/loopback"
+	"wktbox/internal/portforward"
 )
 
 const (
@@ -59,6 +61,12 @@ func execute(
 			deps.serve = runSidecar
 		}
 		if err := deps.serve(ctx); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback:", err)
+			return 1
+		}
+		return 0
+	case "import-proxy":
+		if err := loopback.RunImportProxyArgs(ctx, arguments[1:]); err != nil {
 			fmt.Fprintln(stderr, "wktbox-loopback:", err)
 			return 1
 		}
@@ -167,10 +175,21 @@ func runSidecar(ctx context.Context) error {
 		return err
 	}
 	reconciler := loopback.NewReconciler(loopback.ReconcilerOptions{})
+	importFactory, loadMappings, err := importRuntimeFromEnv()
+	if err != nil {
+		source.Close()
+		return err
+	}
+	imports := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: importFactory,
+		Stopper: source,
+	})
 	daemon := loopback.NewDaemon(loopback.DaemonOptions{
-		Source:     source,
-		Reconciler: reconciler,
-		Logf:       log.Printf,
+		Source:           source,
+		Reconciler:       reconciler,
+		Imports:          imports,
+		LoadPortMappings: loadMappings,
+		Logf:             log.Printf,
 	})
 	controller := persistentController{
 		Controller: daemon,
@@ -197,9 +216,68 @@ func runSidecar(ctx context.Context) error {
 	return errors.Join(first, second)
 }
 
+func importRuntimeFromEnv() (
+	loopback.ImportProxyFactory,
+	func() ([]portforward.Mapping, error),
+	error,
+) {
+	configPath := os.Getenv("WKTBOX_PORT_CONFIG")
+	tokenPath := os.Getenv("WKTBOX_RELAY_TOKEN")
+	relayHost := os.Getenv("WKTBOX_RELAY_HOST")
+	relayPort := os.Getenv("WKTBOX_RELAY_PORT")
+	if configPath == "" || tokenPath == "" || relayHost == "" || relayPort == "" {
+		return nil, nil, errors.New(
+			"WKTBOX_PORT_CONFIG, WKTBOX_RELAY_TOKEN, WKTBOX_RELAY_HOST, and WKTBOX_RELAY_PORT are required",
+		)
+	}
+	addresses, err := net.LookupHost(relayHost)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve host relay %s: %w", relayHost, err)
+	}
+	relayAddress := ""
+	for _, address := range addresses {
+		if parsed := net.ParseIP(address); parsed != nil && parsed.To4() != nil {
+			relayAddress = net.JoinHostPort(address, relayPort)
+			break
+		}
+	}
+	if relayAddress == "" {
+		return nil, nil, fmt.Errorf("host relay %s has no IPv4 address", relayHost)
+	}
+	factory, err := loopback.NewProcessImportFactory(loopback.ProcessImportOptions{
+		RelayAddress: relayAddress,
+		TokenPath:    tokenPath,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return factory, func() ([]portforward.Mapping, error) {
+		return portforward.LoadConfig(configPath)
+	}, nil
+}
+
 type persistentController struct {
 	loopback.Controller
 	path string
+}
+
+func (controller persistentController) SyncImports(
+	ctx context.Context,
+) (loopback.Status, error) {
+	importController, ok := controller.Controller.(loopback.ImportController)
+	if !ok {
+		return loopback.Status{}, errors.New(
+			"loopback controller does not support port imports",
+		)
+	}
+	status, err := importController.SyncImports(ctx)
+	if err != nil {
+		return status, err
+	}
+	if err := loopback.WriteStatusFile(controller.path, status); err != nil {
+		return status, err
+	}
+	return status, nil
 }
 
 func (controller persistentController) Sync(ctx context.Context) (loopback.Status, error) {

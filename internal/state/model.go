@@ -60,6 +60,7 @@ type BoxRecord struct {
 	GatewayEnabled         bool                  `json:"gatewayEnabled,omitempty"`
 	PortConfigPath         string                `json:"portConfigPath,omitempty"`
 	PortOverridePath       string                `json:"portOverridePath,omitempty"`
+	PortRelayTokenPath     string                `json:"portRelayTokenPath,omitempty"`
 	PortMappings           []portforward.Mapping `json:"portMappings,omitempty"`
 	CreatedAt              time.Time             `json:"createdAt"`
 	LastUsedAt             time.Time             `json:"lastUsedAt"`

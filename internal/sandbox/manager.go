@@ -126,6 +126,7 @@ func (manager Manager) ensure(
 	record.GatewayEnabled = spec.Config.Gateway.Enabled
 	record.PortConfigPath = files.PortConfigPath
 	record.PortOverridePath = files.PortOverridePath
+	record.PortRelayTokenPath = files.PortRelayTokenPath
 	record.PortMappings = append([]portforward.Mapping(nil), spec.PortMappings...)
 	record.CreatedAt = createdAt
 	record.LastUsedAt = manager.now().UTC()

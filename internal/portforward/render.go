@@ -3,12 +3,29 @@ package portforward
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"go.yaml.in/yaml/v4"
 )
 
 type Config struct {
 	Mappings []Mapping `json:"mappings"`
+}
+
+func LoadConfig(path string) ([]Mapping, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read port configuration: %w", err)
+	}
+	var config Config
+	if err := json.Unmarshal(body, &config); err != nil {
+		return nil, fmt.Errorf("decode port configuration: %w", err)
+	}
+	if err := ValidateSet(config.Mappings); err != nil {
+		return nil, fmt.Errorf("validate port configuration: %w", err)
+	}
+	Sort(config.Mappings)
+	return config.Mappings, nil
 }
 
 type composeOverride struct {

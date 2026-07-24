@@ -196,6 +196,7 @@ type fakeSource struct {
 	snapshots   int
 	subscribe   int
 	closed      bool
+	stopped     []string
 }
 
 func (source *fakeSource) Snapshot(context.Context) ([]loopback.Container, error) {
@@ -223,6 +224,13 @@ func (source *fakeSource) Close() error {
 	source.mutex.Lock()
 	defer source.mutex.Unlock()
 	source.closed = true
+	return nil
+}
+
+func (source *fakeSource) Stop(_ context.Context, id string) error {
+	source.mutex.Lock()
+	defer source.mutex.Unlock()
+	source.stopped = append(source.stopped, id)
 	return nil
 }
 

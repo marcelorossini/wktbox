@@ -8,6 +8,8 @@ import (
 	"math/rand/v2"
 	"sync"
 	"time"
+
+	"wktbox/internal/portforward"
 )
 
 type Backoff struct {
@@ -17,28 +19,42 @@ type Backoff struct {
 }
 
 type DaemonOptions struct {
-	Source         Source
-	Reconciler     *Reconciler
-	Debounce       time.Duration
-	ResyncInterval time.Duration
-	Backoff        Backoff
-	Random         func() float64
-	Logf           func(string, ...any)
-	Now            func() time.Time
+	Source           Source
+	Reconciler       *Reconciler
+	Debounce         time.Duration
+	ResyncInterval   time.Duration
+	Backoff          Backoff
+	Random           func() float64
+	Logf             func(string, ...any)
+	Now              func() time.Time
+	Imports          ImportManager
+	LoadPortMappings func() ([]portforward.Mapping, error)
+}
+
+type ImportManager interface {
+	Apply(
+		context.Context,
+		[]Container,
+		[]portforward.Mapping,
+		ImportApplyMode,
+	) ([]Warning, error)
+	Close() error
 }
 
 type Daemon struct {
-	source         Source
-	reconciler     *Reconciler
-	debounce       time.Duration
-	resyncInterval time.Duration
-	backoff        Backoff
-	random         func() float64
-	logf           func(string, ...any)
-	now            func() time.Time
-	syncMutex      sync.Mutex
-	logMutex       sync.Mutex
-	lastLog        map[string]time.Time
+	source           Source
+	reconciler       *Reconciler
+	debounce         time.Duration
+	resyncInterval   time.Duration
+	backoff          Backoff
+	random           func() float64
+	logf             func(string, ...any)
+	now              func() time.Time
+	imports          ImportManager
+	loadPortMappings func() ([]portforward.Mapping, error)
+	syncMutex        sync.Mutex
+	logMutex         sync.Mutex
+	lastLog          map[string]time.Time
 }
 
 func NewDaemon(options DaemonOptions) *Daemon {
@@ -70,15 +86,17 @@ func NewDaemon(options DaemonOptions) *Daemon {
 		options.Now = time.Now
 	}
 	return &Daemon{
-		source:         options.Source,
-		reconciler:     options.Reconciler,
-		debounce:       options.Debounce,
-		resyncInterval: options.ResyncInterval,
-		backoff:        options.Backoff,
-		random:         options.Random,
-		logf:           options.Logf,
-		now:            options.Now,
-		lastLog:        make(map[string]time.Time),
+		source:           options.Source,
+		reconciler:       options.Reconciler,
+		debounce:         options.Debounce,
+		resyncInterval:   options.ResyncInterval,
+		backoff:          options.Backoff,
+		random:           options.Random,
+		logf:             options.Logf,
+		now:              options.Now,
+		imports:          options.Imports,
+		loadPortMappings: options.LoadPortMappings,
+		lastLog:          make(map[string]time.Time),
 	}
 }
 
@@ -92,7 +110,16 @@ func (daemon *Daemon) Run(ctx context.Context) (runErr error) {
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		runErr = errors.Join(runErr, daemon.reconciler.Close(closeCtx), daemon.source.Close())
+		var importErr error
+		if daemon.imports != nil {
+			importErr = daemon.imports.Close()
+		}
+		runErr = errors.Join(
+			runErr,
+			importErr,
+			daemon.reconciler.Close(closeCtx),
+			daemon.source.Close(),
+		)
 	}()
 
 	delay := daemon.backoff.Initial
@@ -141,6 +168,17 @@ func (daemon *Daemon) Run(ctx context.Context) (runErr error) {
 }
 
 func (daemon *Daemon) Sync(ctx context.Context) (Status, error) {
+	return daemon.sync(ctx, ImportApplyEvent)
+}
+
+func (daemon *Daemon) SyncImports(ctx context.Context) (Status, error) {
+	return daemon.sync(ctx, ImportApplyTransaction)
+}
+
+func (daemon *Daemon) sync(
+	ctx context.Context,
+	importMode ImportApplyMode,
+) (Status, error) {
 	daemon.syncMutex.Lock()
 	defer daemon.syncMutex.Unlock()
 
@@ -148,7 +186,29 @@ func (daemon *Daemon) Sync(ctx context.Context) (Status, error) {
 	if err != nil {
 		return daemon.Status(), fmt.Errorf("snapshot inner Docker containers: %w", err)
 	}
-	status := daemon.reconciler.Apply(ctx, Discover(containers))
+	desired := Discover(containers)
+	status := daemon.reconciler.Apply(ctx, desired)
+	if daemon.imports != nil {
+		if daemon.loadPortMappings == nil {
+			return status, errors.New("port mapping loader is required")
+		}
+		mappings, err := daemon.loadPortMappings()
+		if err != nil {
+			return status, fmt.Errorf("load port mappings: %w", err)
+		}
+		warnings, err := daemon.imports.Apply(
+			ctx,
+			containers,
+			mappings,
+			importMode,
+		)
+		if err != nil {
+			return status, fmt.Errorf("reconcile port imports: %w", err)
+		}
+		status = daemon.reconciler.SetWarnings(
+			append(desired.Warnings, warnings...),
+		)
+	}
 	stream := status.EventStream
 	if stream == "" {
 		stream = EventStreamDisconnected

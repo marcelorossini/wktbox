@@ -2,6 +2,9 @@ package portforward_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -39,6 +42,32 @@ func TestRenderConfigSortsMappingsAndEndsWithNewline(t *testing.T) {
 		decoded.Mappings[0].Name != "postgres" ||
 		decoded.Mappings[1].Name != "web" {
 		t.Fatalf("config = %#v", decoded)
+	}
+}
+
+func TestLoadConfigReadsRenderedMappings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ports.json")
+	want := []portforward.Mapping{{
+		Name:          "api",
+		Direction:     portforward.Publish,
+		SourceAddress: "127.0.0.1",
+		SourcePort:    18000,
+		TargetPort:    8000,
+	}}
+	body, err := portforward.RenderConfig(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := portforward.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mappings = %#v, want %#v", got, want)
 	}
 }
 

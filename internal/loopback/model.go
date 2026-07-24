@@ -22,6 +22,8 @@ type Container struct {
 	ID      string
 	Name    string
 	Running bool
+	PID     int
+	Labels  map[string]string
 	Ports   []PortBinding
 }
 

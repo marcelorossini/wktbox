@@ -123,6 +123,14 @@ func (reconciler *Reconciler) SetEventStream(state string) Status {
 	return cloneStatus(reconciler.status)
 }
 
+func (reconciler *Reconciler) SetWarnings(warnings []Warning) Status {
+	reconciler.mutex.Lock()
+	defer reconciler.mutex.Unlock()
+	reconciler.status.Warnings = cloneWarnings(warnings)
+	reconciler.status.UpdatedAt = reconciler.now().UTC()
+	return cloneStatus(reconciler.status)
+}
+
 func (reconciler *Reconciler) Close(ctx context.Context) error {
 	reconciler.mutex.Lock()
 	if !reconciler.closed {

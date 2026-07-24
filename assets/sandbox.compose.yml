@@ -110,6 +110,10 @@ services:
       DOCKER_HOST: tcp://docker:2376
       DOCKER_TLS_VERIFY: "1"
       DOCKER_CERT_PATH: /certs/client
+      WKTBOX_PORT_CONFIG: /run/wktbox-ports/ports.json
+      WKTBOX_RELAY_HOST: host.docker.internal
+      WKTBOX_RELAY_PORT: ${PORT_IMPORT_RELAY}
+      WKTBOX_RELAY_TOKEN: /run/wktbox-ports/relay.token
     labels:
       io.wktbox.managed: "true"
       io.wktbox.box-id: ${WKTBOX_ID}
@@ -120,6 +124,10 @@ services:
       - type: bind
         source: ${PORT_CONFIG_PATH}
         target: /run/wktbox-ports/ports.json
+        read_only: true
+      - type: bind
+        source: ${PORT_RELAY_TOKEN_PATH}
+        target: /run/wktbox-ports/relay.token
         read_only: true
     healthcheck:
       test:

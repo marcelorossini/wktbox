@@ -3,7 +3,6 @@ package portforward
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -186,15 +185,11 @@ func StopRelayProcess(
 }
 
 func resolveImport(configPath string, name string) (string, bool) {
-	body, err := os.ReadFile(configPath)
+	mappings, err := LoadConfig(configPath)
 	if err != nil {
 		return "", false
 	}
-	var config Config
-	if json.Unmarshal(body, &config) != nil {
-		return "", false
-	}
-	for _, mapping := range config.Mappings {
+	for _, mapping := range mappings {
 		if mapping.Direction == Import && mapping.Name == name {
 			return net.JoinHostPort(
 				mapping.SourceAddress,

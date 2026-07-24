@@ -31,6 +31,7 @@ type Files struct {
 	GatewayConfigPath      string
 	PortConfigPath         string
 	PortOverridePath       string
+	PortRelayTokenPath     string
 	Changed                bool
 }
 

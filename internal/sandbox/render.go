@@ -48,11 +48,22 @@ func Render(directory string, spec Spec) (Files, error) {
 	}
 
 	files := Files{
-		ComposePath:       filepath.Join(directory, "compose.yml"),
-		SandboxEnvPath:    filepath.Join(directory, "sandbox.env"),
-		GatewayConfigPath: filepath.Join(directory, "gateway.conf"),
-		PortConfigPath:    filepath.Join(directory, "ports.json"),
-		PortOverridePath:  filepath.Join(directory, "ports.override.yml"),
+		ComposePath:        filepath.Join(directory, "compose.yml"),
+		SandboxEnvPath:     filepath.Join(directory, "sandbox.env"),
+		GatewayConfigPath:  filepath.Join(directory, "gateway.conf"),
+		PortConfigPath:     filepath.Join(directory, "ports.json"),
+		PortOverridePath:   filepath.Join(directory, "ports.override.yml"),
+		PortRelayTokenPath: filepath.Join(directory, "port-relay.token"),
+	}
+	_, tokenStatErr := os.Stat(files.PortRelayTokenPath)
+	_, err := portforward.EnsureRelayToken(files.PortRelayTokenPath)
+	if err != nil {
+		return Files{}, err
+	}
+	if os.IsNotExist(tokenStatErr) {
+		files.Changed = true
+	} else if tokenStatErr != nil {
+		return Files{}, fmt.Errorf("inspect port relay token: %w", tokenStatErr)
 	}
 	changed, err := writeProtected(files.ComposePath, assets.SandboxCompose)
 	if err != nil {
@@ -173,6 +184,10 @@ func renderSandboxEnv(spec Spec, gatewayConfigPath string) []byte {
 	values["PORT_CONFIG_PATH"] = filepath.Join(
 		filepath.Dir(gatewayConfigPath),
 		"ports.json",
+	)
+	values["PORT_RELAY_TOKEN_PATH"] = filepath.Join(
+		filepath.Dir(gatewayConfigPath),
+		"port-relay.token",
 	)
 	keys := make([]string, 0, len(values))
 	for key := range values {

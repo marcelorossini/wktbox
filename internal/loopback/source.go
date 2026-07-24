@@ -14,5 +14,6 @@ type Subscription struct {
 type Source interface {
 	Snapshot(context.Context) ([]Container, error)
 	Subscribe(context.Context) (Subscription, error)
+	Stop(context.Context, string) error
 	Close() error
 }

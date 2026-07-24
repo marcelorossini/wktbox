@@ -14,6 +14,7 @@ func TestContainerFromInspectConvertsPublishedPortMap(t *testing.T) {
 		Name: "/backend",
 		State: &container.State{
 			Running: true,
+			Pid:     42,
 		},
 		NetworkSettings: &container.NetworkSettings{
 			Ports: network.PortMap{
@@ -37,6 +38,7 @@ func TestContainerFromInspectConvertsPublishedPortMap(t *testing.T) {
 		ID:      "abc123",
 		Name:    "backend",
 		Running: true,
+		PID:     42,
 		Ports: []PortBinding{
 			{ContainerPort: 5173, HostPort: 5173, Protocol: "tcp", Published: true},
 			{ContainerPort: 5353, HostPort: 5353, Protocol: "udp", Published: true},

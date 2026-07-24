@@ -15,6 +15,10 @@ type Controller interface {
 	Status() Status
 }
 
+type ImportController interface {
+	SyncImports(context.Context) (Status, error)
+}
+
 type controlRequest struct {
 	Command string `json:"command"`
 }
@@ -140,6 +144,13 @@ func serveControlConnection(ctx context.Context, connection net.Conn, controller
 		status = controller.Status()
 	case "sync":
 		status, err = controller.Sync(ctx)
+	case "imports-apply":
+		importController, ok := controller.(ImportController)
+		if !ok {
+			err = errors.New("loopback controller does not support port imports")
+			break
+		}
+		status, err = importController.SyncImports(ctx)
 	default:
 		err = fmt.Errorf("unknown loopback command %q", request.Command)
 	}

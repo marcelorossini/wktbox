@@ -58,8 +58,17 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if files.PortConfigPath == "" || files.PortOverridePath == "" {
+	if files.PortConfigPath == "" ||
+		files.PortOverridePath == "" ||
+		files.PortRelayTokenPath == "" {
 		t.Fatalf("files = %#v", files)
+	}
+	tokenInfo, err := os.Stat(files.PortRelayTokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("relay token mode = %o", tokenInfo.Mode().Perm())
 	}
 	if body := readFile(t, files.PortConfigPath); !strings.Contains(body, `"postgres"`) ||
 		!strings.Contains(body, `"api"`) {
@@ -98,6 +107,16 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 	}
 	if strings.Contains(readFile(t, files.ComposePath), "/var/run/docker.sock") {
 		t.Fatal("host Docker socket leaked into port runtime")
+	}
+	body := readFile(t, files.ComposePath)
+	for _, required := range []string{
+		"${PORT_RELAY_TOKEN_PATH}",
+		"/run/wktbox-ports/relay.token",
+		"WKTBOX_RELAY_PORT",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("compose missing %q:\n%s", required, body)
+		}
 	}
 }
 

@@ -118,7 +118,7 @@ func (relay *Relay) handle(ctx context.Context, source net.Conn) {
 		return
 	}
 	_ = source.SetDeadline(time.Time{})
-	copyBoth(source, target)
+	BridgeTCP(source, target)
 }
 
 func ProbeRelay(ctx context.Context, address string, token []byte) error {
@@ -174,7 +174,7 @@ func DialRelay(
 	return dialRelayCommand(ctx, address, token, mappingName)
 }
 
-func copyBoth(left net.Conn, right net.Conn) {
+func BridgeTCP(left net.Conn, right net.Conn) {
 	var wait sync.WaitGroup
 	wait.Add(2)
 	copyOne := func(destination net.Conn, source net.Conn) {
