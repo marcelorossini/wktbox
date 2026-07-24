@@ -20,8 +20,28 @@ const (
 )
 
 type State struct {
-	Version int                  `json:"version"`
-	Boxes   map[string]BoxRecord `json:"boxes"`
+	Version     int                         `json:"version"`
+	Boxes       map[string]BoxRecord        `json:"boxes"`
+	Connections map[string]ConnectionRecord `json:"connections,omitempty"`
+}
+
+type ConnectionStatus string
+
+const (
+	ConnectionReady    ConnectionStatus = "ready"
+	ConnectionDegraded ConnectionStatus = "degraded"
+	ConnectionError    ConnectionStatus = "error"
+)
+
+type ConnectionRecord struct {
+	ID           string           `json:"id"`
+	Name         string           `json:"name,omitempty"`
+	Network      string           `json:"network"`
+	Members      []string         `json:"members"`
+	Status       ConnectionStatus `json:"status"`
+	Error        string           `json:"error,omitempty"`
+	CreatedAt    time.Time        `json:"createdAt"`
+	ReconciledAt time.Time        `json:"reconciledAt,omitempty"`
 }
 
 type BoxRecord struct {
@@ -43,7 +63,8 @@ type BoxRecord struct {
 
 func Empty() State {
 	return State{
-		Version: 1,
-		Boxes:   make(map[string]BoxRecord),
+		Version:     1,
+		Boxes:       make(map[string]BoxRecord),
+		Connections: make(map[string]ConnectionRecord),
 	}
 }

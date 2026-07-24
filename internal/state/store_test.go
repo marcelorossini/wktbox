@@ -16,18 +16,14 @@ import (
 
 func TestSaveIsAtomicAndRoundTrips(t *testing.T) {
 	store := state.NewStore(t.TempDir())
-	want := state.State{
-		Version: 1,
-		Boxes: map[string]state.BoxRecord{
-			"abc": {
-				ID:          "abc",
-				Name:        "feature-auth",
-				Worktree:    "/repo",
-				ProjectName: "wktbox-abc",
-				Status:      state.Ready,
-				CreatedAt:   time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
-			},
-		},
+	want := state.Empty()
+	want.Boxes["abc"] = state.BoxRecord{
+		ID:          "abc",
+		Name:        "feature-auth",
+		Worktree:    "/repo",
+		ProjectName: "wktbox-abc",
+		Status:      state.Ready,
+		CreatedAt:   time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
 	}
 	if err := store.Save(context.Background(), want); err != nil {
 		t.Fatal(err)
@@ -53,8 +49,26 @@ func TestLoadMissingReturnsEmptyVersionedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != 1 || got.Boxes == nil || len(got.Boxes) != 0 {
+	if got.Version != 1 ||
+		got.Boxes == nil || len(got.Boxes) != 0 ||
+		got.Connections == nil || len(got.Connections) != 0 {
 		t.Fatalf("state = %#v", got)
+	}
+}
+
+func TestLoadVersionOneWithoutConnectionsInitializesMap(t *testing.T) {
+	root := t.TempDir()
+	body := []byte(`{"version":1,"boxes":{}}`)
+	if err := os.WriteFile(filepath.Join(root, "state.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := state.NewStore(root).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Connections == nil || len(got.Connections) != 0 {
+		t.Fatalf("connections = %#v", got.Connections)
 	}
 }
 

@@ -65,6 +65,9 @@ func (store Store) Load(ctx context.Context) (State, error) {
 	if current.Boxes == nil {
 		current.Boxes = make(map[string]BoxRecord)
 	}
+	if current.Connections == nil {
+		current.Connections = make(map[string]ConnectionRecord)
+	}
 	return current, nil
 }
 
@@ -80,6 +83,9 @@ func (store Store) Save(ctx context.Context, current State) error {
 	}
 	if current.Boxes == nil {
 		current.Boxes = make(map[string]BoxRecord)
+	}
+	if current.Connections == nil {
+		current.Connections = make(map[string]ConnectionRecord)
 	}
 	if err := os.MkdirAll(store.root, 0o700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
