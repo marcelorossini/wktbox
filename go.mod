@@ -8,7 +8,7 @@ require (
 	github.com/moby/moby/client v0.5.0
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
-	golang.org/x/sys v0.37.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
