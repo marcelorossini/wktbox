@@ -3,11 +3,12 @@ GO_CONTAINER = docker run --rm \
 	--user $$(id -u):$$(id -g) \
 	-e GOCACHE=/tmp/go-build \
 	-e GOMODCACHE=/tmp/go-mod \
+	-e SOURCE_DATE_EPOCH \
 	-v "$(CURDIR):/src" \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: agent-evaluate agent-scorer-test agent-skill-test build docs-check e2e fmt images images-test install-test release release-build release-verify spike test test-race vet
+.PHONY: agent-evaluate agent-scorer-test agent-skill-test build docs-check e2e fmt images images-test install-test release release-build release-dry-run release-verify spike test test-race vet
 
 agent-evaluate:
 	bash tests/agents/evaluate.sh installed \
@@ -62,6 +63,14 @@ release:
 
 release-build:
 	./scripts/build.sh "$(VERSION)"
+
+release-dry-run:
+	test -n "$(VERSION)"
+	SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)" \
+		$(GO_CONTAINER) bash scripts/build.sh "$(VERSION)"
+	sha256sum --check dist/checksums.txt
+	bash tests/release/verifier_test.sh
+	$(GO_CONTAINER) go test ./tests/release -count=1
 
 release-verify:
 	sha256sum --check dist/checksums.txt

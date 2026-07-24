@@ -2,14 +2,51 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
-  release:
+  validate:
+    name: Validate tag and compiled version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Match tag to the compiled binary
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          test "$tag" = "v$version"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+          CGO_ENABLED=0 go build \
+            -trimpath \
+            -ldflags "-s -w -X wktbox/internal/version.value=$version" \
+            -o "$RUNNER_TEMP/wktbox" \
+            ./cmd/wktbox
+          compiled="$("$RUNNER_TEMP/wktbox" --version)"
+          compiled="${compiled##* }"
+          test "$version" = "$compiled"
+          printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >>"$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify source and tests
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -17,15 +54,77 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build binaries
-        run: ./scripts/build.sh "${GITHUB_REF_NAME#v}"
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test ./...
+      - name: Test with race detector
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test release archives
+        run: bash tests/release/build_test.sh
+      - name: Test installers, agent policy, and docs
+        run: |
+          bash tests/install/unix_test.sh
+          bash tests/agents/evaluate.sh self-test
+          go test ./tests/agents ./internal/agentintegration -count=1
+          go test ./tests -run Docs -count=1
 
-  images:
+  artifacts:
+    name: Build and attest release artifacts
+    needs: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build six reproducible archives
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash scripts/build.sh "$VERSION"
+          install -m 0755 scripts/install.sh dist/install.sh
+          install -m 0644 scripts/install.ps1 dist/install.ps1
+          sha256sum --check dist/checksums.txt
+          test "$(find dist -maxdepth 1 -type f -name 'wktbox_*' | wc -l)" -eq 6
+      - name: Attest archives, checksums, and installers
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            dist/wktbox_*.tar.gz
+            dist/wktbox_*.zip
+            dist/checksums.txt
+            dist/install.sh
+            dist/install.ps1
+      - name: Transfer release artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: public-release-artifacts
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  webtop-image:
+    name: Build immutable Webtop image
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -35,20 +134,184 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish multi-architecture images
+      - name: Build by digest and publish immutable version
+        id: publish
         env:
-          REGISTRY: ghcr.io
-          REPOSITORY: ${{ github.repository }}
-          VERSION: ${{ github.ref_name }}
+          IMAGE: ghcr.io/marcelorossini/wktbox/webtop
+          VERSIONED_IMAGE: ghcr.io/marcelorossini/wktbox/webtop:${{ needs.validate.outputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          SOURCE_URL: https://github.com/marcelorossini/wktbox
         run: |
-          repository="${REPOSITORY,,}"
-          version="${VERSION#v}"
-          docker buildx build --platform linux/amd64,linux/arm64 \
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/webtop-metadata.json"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
             --file images/webtop/Dockerfile \
-            --tag "$REGISTRY/$repository/webtop:$version" \
-            --tag "$REGISTRY/$repository/webtop:latest" \
-            --push .
-          docker buildx build --platform linux/amd64,linux/arm64 \
-            --tag "$REGISTRY/$repository/gateway:$version" \
-            --tag "$REGISTRY/$repository/gateway:latest" \
-            --push images/gateway
+            --build-arg VERSION="$VERSION" \
+            --build-arg REVISION="$GITHUB_SHA" \
+            --build-arg SOURCE_URL="$SOURCE_URL" \
+            --metadata-file "$metadata" \
+            --output "type=image,name=$IMAGE,push=true,push-by-digest=true,name-canonical=true" \
+            .
+          digest="$(jq -er '."containerimage.digest"' "$metadata")"
+          existing_digest="$(
+            docker buildx imagetools inspect "$VERSIONED_IMAGE" 2>/dev/null |
+              sed -n 's/^Digest:[[:space:]]*//p' |
+              head -n 1
+          )"
+          if [[ -n "$existing_digest" ]]; then
+            if [[ "$existing_digest" != "$digest" ]]; then
+              printf 'immutable image digest mismatch: %s is %s, build is %s\n' \
+                "$VERSIONED_IMAGE" "$existing_digest" "$digest" >&2
+              exit 1
+            fi
+          else
+            docker buildx imagetools create \
+              --tag "$VERSIONED_IMAGE" \
+              "$IMAGE@$digest"
+          fi
+          published_digest="$(
+            docker buildx imagetools inspect "$VERSIONED_IMAGE" |
+              sed -n 's/^Digest:[[:space:]]*//p' |
+              head -n 1
+          )"
+          test "$published_digest" = "$digest"
+          printf 'digest=%s\n' "$digest" >>"$GITHUB_OUTPUT"
+      - name: Attest Webtop manifest
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ghcr.io/marcelorossini/wktbox/webtop
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+  gateway-image:
+    name: Build immutable gateway image
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build by digest and publish immutable version
+        id: publish
+        env:
+          IMAGE: ghcr.io/marcelorossini/wktbox/gateway
+          VERSIONED_IMAGE: ghcr.io/marcelorossini/wktbox/gateway:${{ needs.validate.outputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          SOURCE_URL: https://github.com/marcelorossini/wktbox
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/gateway-metadata.json"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file images/gateway/Dockerfile \
+            --build-arg VERSION="$VERSION" \
+            --build-arg REVISION="$GITHUB_SHA" \
+            --build-arg SOURCE_URL="$SOURCE_URL" \
+            --metadata-file "$metadata" \
+            --output "type=image,name=$IMAGE,push=true,push-by-digest=true,name-canonical=true" \
+            images/gateway
+          digest="$(jq -er '."containerimage.digest"' "$metadata")"
+          existing_digest="$(
+            docker buildx imagetools inspect "$VERSIONED_IMAGE" 2>/dev/null |
+              sed -n 's/^Digest:[[:space:]]*//p' |
+              head -n 1
+          )"
+          if [[ -n "$existing_digest" ]]; then
+            if [[ "$existing_digest" != "$digest" ]]; then
+              printf 'immutable image digest mismatch: %s is %s, build is %s\n' \
+                "$VERSIONED_IMAGE" "$existing_digest" "$digest" >&2
+              exit 1
+            fi
+          else
+            docker buildx imagetools create \
+              --tag "$VERSIONED_IMAGE" \
+              "$IMAGE@$digest"
+          fi
+          published_digest="$(
+            docker buildx imagetools inspect "$VERSIONED_IMAGE" |
+              sed -n 's/^Digest:[[:space:]]*//p' |
+              head -n 1
+          )"
+          test "$published_digest" = "$digest"
+          printf 'digest=%s\n' "$digest" >>"$GITHUB_OUTPUT"
+      - name: Attest gateway manifest
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ghcr.io/marcelorossini/wktbox/gateway
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+  promote-latest:
+    name: Promote both successful images to latest
+    needs: [webtop-image, gateway-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move latest only after both immutable images succeed
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag ghcr.io/marcelorossini/wktbox/webtop:latest \
+            ghcr.io/marcelorossini/wktbox/webtop@${{ needs.webtop-image.outputs.digest }}
+          docker buildx imagetools create \
+            --tag ghcr.io/marcelorossini/wktbox/gateway:latest \
+            ghcr.io/marcelorossini/wktbox/gateway@${{ needs.gateway-image.outputs.digest }}
+
+  release:
+    name: Publish GitHub Release last
+    needs:
+      - validate
+      - verify
+      - artifacts
+      - webtop-image
+      - gateway-image
+      - promote-latest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: public-release-artifacts
+          path: dist
+      - name: Create final non-prerelease release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            printf '# Wktbox %s\n\n' "$VERSION"
+            sed -n "/^## \\[$VERSION\\]/,/^## \\[/p" CHANGELOG.md |
+              sed '$d'
+          } >"$RUNNER_TEMP/release-notes.md"
+          gh release create "$TAG" dist/* \
+            --verify-tag \
+            --title "Wktbox $VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --generate-notes \
+            --latest
