@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /images/webtop
+    schedule:
+      interval: weekly
+    groups:
+      webtop-images:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /images/gateway
+    schedule:
+      interval: weekly
+    groups:
+      gateway-images:
+        patterns:
+          - "*"

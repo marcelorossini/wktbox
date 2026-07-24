@@ -7,7 +7,7 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: agent-evaluate agent-scorer-test agent-skill-test build docs-check e2e fmt images install-test release release-build release-verify spike test test-race vet
+.PHONY: agent-evaluate agent-scorer-test agent-skill-test build docs-check e2e fmt images images-test install-test release release-build release-verify spike test test-race vet
 
 agent-evaluate:
 	bash tests/agents/evaluate.sh installed \
@@ -46,6 +46,9 @@ vet:
 images:
 	docker build -f images/webtop/Dockerfile -t wktbox/webtop:dev .
 	docker build -t wktbox/gateway:dev images/gateway
+
+images-test:
+	bash tests/images/labels_test.sh
 
 install-test:
 	bash tests/install/unix_test.sh
