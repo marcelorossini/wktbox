@@ -60,3 +60,17 @@ assert_nonempty_distinct() {
     return 1
   fi
 }
+
+wait_for_cdp() {
+  local url="$1"
+  local deadline=$((SECONDS + 90))
+  while ((SECONDS < deadline)); do
+    if curl --fail --silent --show-error \
+      "$url/json/version" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  printf 'CDP endpoint did not become ready: %s\n' "$url" >&2
+  return 1
+}

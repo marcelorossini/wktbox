@@ -113,8 +113,37 @@ id_b="$(json_value "$status_b" id)"
 port_a="$(json_value "$status_a" ports.webtopHttp)"
 port_b="$(json_value "$status_b" ports.webtopHttp)"
 gateway_port_a="$(json_value "$status_a" ports.gateway)"
+browser_port_a="$(json_value "$status_a" ports.browserCdp)"
+browser_port_b="$(json_value "$status_b" ports.browserCdp)"
+browser_url_a="$(json_value "$status_a" urls.browserCdp)"
+browser_url_b="$(json_value "$status_b" urls.browserCdp)"
 assert_nonempty_distinct "$id_a" "$id_b" "box IDs"
 assert_nonempty_distinct "$port_a" "$port_b" "port blocks"
+assert_nonempty_distinct \
+  "$browser_port_a" "$browser_port_b" "browser CDP ports"
+wait_for_cdp "$browser_url_a"
+wait_for_cdp "$browser_url_b"
+test "$(docker port "wktbox-$id_a-webtop-1" 9223/tcp)" = \
+  "127.0.0.1:$browser_port_a"
+test "$(docker port "wktbox-$id_b-webtop-1" 9223/tcp)" = \
+  "127.0.0.1:$browser_port_b"
+
+browser_version_a="$(curl --fail --silent --show-error \
+  "$browser_url_a/json/version")"
+printf '%s' "$browser_version_a" | python3 -c '
+import json
+import sys
+
+document = json.load(sys.stdin)
+expected_port = sys.argv[1]
+websocket = document.get("webSocketDebuggerUrl", "")
+valid_prefixes = (
+    f"ws://127.0.0.1:{expected_port}/",
+    f"ws://localhost:{expected_port}/",
+)
+if not websocket.startswith(valid_prefixes):
+    raise SystemExit(f"unusable browser websocket URL: {websocket!r}")
+' "$browser_port_a"
 
 "$wktbox" --path "$worktree_a" --env-file "$env_a" run -- \
   docker compose up -d --wait
@@ -124,6 +153,50 @@ assert_nonempty_distinct "$port_a" "$port_b" "port blocks"
   docker compose --profile test run --rm e2e
 "$wktbox" --path "$worktree_b" exec -- \
   docker compose --profile test run --rm e2e
+
+curl --fail --silent --show-error --request PUT \
+  "$browser_url_a/json/new?http://localhost:5173/public/index.html" \
+  >"$test_root/browser-tab.json"
+curl --fail --silent --show-error "$browser_url_a/json/list" |
+  python3 -c '
+import json
+import sys
+
+pages = json.load(sys.stdin)
+if not any(
+    page.get("type") == "page"
+    and page.get("url", "").endswith("/public/index.html")
+    for page in pages
+):
+    raise SystemExit("graphical Chromium tab not found")
+'
+
+old_browser_pid="$(docker exec "wktbox-$id_a-webtop-1" \
+  pgrep -o -f '[c]hromium.*--remote-debugging-port=9222')"
+test -n "$old_browser_pid"
+docker exec "wktbox-$id_a-webtop-1" kill "$old_browser_pid"
+
+deadline=$((SECONDS + 30))
+while ((SECONDS < deadline)); do
+  if ! docker exec "wktbox-$id_a-webtop-1" \
+    kill -0 "$old_browser_pid" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+if docker exec "wktbox-$id_a-webtop-1" \
+  kill -0 "$old_browser_pid" >/dev/null 2>&1; then
+  printf 'Chromium PID %s did not exit\n' "$old_browser_pid" >&2
+  exit 1
+fi
+
+wait_for_cdp "$browser_url_a"
+new_browser_pid="$(docker exec "wktbox-$id_a-webtop-1" \
+  pgrep -o -f '[c]hromium.*--remote-debugging-port=9222')"
+test -n "$new_browser_pid"
+test "$old_browser_pid" != "$new_browser_pid"
+assert_json_status "$("$wktbox" --path "$worktree_a" --json status)" ready
+assert_json_status "$("$wktbox" --path "$worktree_b" --json status)" ready
 
 ps_a="$("$wktbox" --path "$worktree_a" exec -- \
   docker ps --format '{{.ID}}' | sort)"
