@@ -25,6 +25,7 @@ type composeService struct {
 	Environment map[string]string `yaml:"environment"`
 	Volumes     []any             `yaml:"volumes"`
 	Command     []string          `yaml:"command"`
+	Hostname    string            `yaml:"hostname"`
 	NetworkMode string            `yaml:"network_mode"`
 	Profiles    []string          `yaml:"profiles"`
 	Ports       []string          `yaml:"ports"`
@@ -115,6 +116,10 @@ func TestRenderIncludesInterconnectDNSWithoutHostSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := readFile(t, files.ComposePath)
+	dockerService := readCompose(t, files.ComposePath).Services["docker"]
+	if dockerService.Hostname != "wktbox-${WKTBOX_ID}-docker" {
+		t.Fatalf("docker hostname = %q", dockerService.Hostname)
+	}
 	for _, want := range []string{
 		`command: ["--dns=172.17.0.1"]`,
 		"interconnect:",

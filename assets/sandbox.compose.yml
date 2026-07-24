@@ -1,7 +1,7 @@
 services:
   docker:
     image: ${WKTBOX_DIND_IMAGE}
-    hostname: docker
+    hostname: wktbox-${WKTBOX_ID}-docker
     command: ["--dns=172.17.0.1"]
     privileged: true
     environment:
