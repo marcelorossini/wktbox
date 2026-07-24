@@ -130,8 +130,7 @@ func (client Client) Up(ctx context.Context, project Project) error {
 }
 
 func (client Client) Start(ctx context.Context, project Project) error {
-	_, err := client.run(ctx, project, "start", "--wait")
-	return err
+	return client.Up(ctx, project)
 }
 
 func (client Client) Stop(ctx context.Context, project Project) error {

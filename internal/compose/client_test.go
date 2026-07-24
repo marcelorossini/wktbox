@@ -82,6 +82,23 @@ func TestUpEnablesOnlyConfiguredGatewayProfile(t *testing.T) {
 	}
 }
 
+func TestStartUsesPortableUpWait(t *testing.T) {
+	runner := &recordingRunner{}
+	client := compose.NewClient(runner)
+	err := client.Start(context.Background(), testProject())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := strings.Join(runner.calls[0], " ")
+	if !strings.HasSuffix(got, "up -d --wait") {
+		t.Fatalf("start command = %s", got)
+	}
+	if strings.Contains(got, " start ") {
+		t.Fatalf("start uses unsupported compose start --wait: %s", got)
+	}
+}
+
 func TestInspectDerivesReadyFromDockerHealthAndRunnerState(t *testing.T) {
 	runner := &recordingRunner{results: []process.Result{{Stdout: `[
 		{"Name":"wktbox-a-docker-1","Service":"docker","State":"running","Health":"healthy"},

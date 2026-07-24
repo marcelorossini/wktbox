@@ -113,7 +113,7 @@ docker stats --no-stream \
   "$(compose "$project_b" "$env_b" ps -q webtop)"
 
 compose "$project_a" "$env_a" stop
-compose "$project_a" "$env_a" start --wait
+compose "$project_a" "$env_a" up -d --wait
 inside "$project_a" "$env_a" docker compose up -d --wait
 test "$(inside "$project_a" "$env_a" docker compose exec -T database cat /data/marker)" = "box-a"
 
