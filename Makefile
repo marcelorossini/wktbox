@@ -8,7 +8,7 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: agent-evaluate agent-scorer-test agent-skill-test build docs-check e2e fmt images images-test install-test release release-build release-dry-run release-verify spike test test-race vet
+.PHONY: agent-evaluate agent-scorer-test agent-skill-test build docs-check e2e e2e-plain-directory fmt images images-test install-test release release-build release-dry-run release-verify spike test test-race vet
 
 agent-evaluate:
 	bash tests/agents/evaluate.sh installed \
@@ -58,6 +58,9 @@ e2e:
 	bash tests/e2e/automatic_loopback.sh
 	bash tests/e2e/two_worktrees.sh
 	bash tests/e2e/cross_box_connections.sh
+
+e2e-plain-directory:
+	bash tests/e2e/plain_directory.sh
 
 release:
 	$(GO_CONTAINER) bash scripts/build.sh "$${WKTBOX_VERSION:-dev}"
