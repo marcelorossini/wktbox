@@ -31,6 +31,10 @@ func (block Block) Gateway() int {
 	return block.Start + 3
 }
 
+func (block Block) BrowserCDP() int {
+	return block.Start + 4
+}
+
 func (block Block) End() int {
 	return block.Start + block.Size - 1
 }

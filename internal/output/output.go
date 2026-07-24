@@ -29,8 +29,9 @@ type Renderer struct {
 }
 
 type URLs struct {
-	Webtop  string `json:"webtop,omitempty"`
-	Gateway string `json:"gateway,omitempty"`
+	Webtop     string `json:"webtop,omitempty"`
+	Gateway    string `json:"gateway,omitempty"`
+	BrowserCDP string `json:"browserCdp,omitempty"`
 }
 
 type PortSet struct {
@@ -38,6 +39,7 @@ type PortSet struct {
 	WebtopHTTPS int `json:"webtopHttps,omitempty"`
 	SSH         int `json:"ssh,omitempty"`
 	Gateway     int `json:"gateway,omitempty"`
+	BrowserCDP  int `json:"browserCdp,omitempty"`
 }
 
 type BoxData struct {
@@ -360,6 +362,13 @@ func GatewayURL(box state.BoxRecord) string {
 	return fmt.Sprintf("http://localhost:%d", box.Ports.Gateway())
 }
 
+func BrowserCDPURL(box state.BoxRecord) string {
+	if box.Ports.Size < 5 {
+		return ""
+	}
+	return fmt.Sprintf("http://localhost:%d", box.Ports.BrowserCDP())
+}
+
 func boxData(box state.BoxRecord) BoxData {
 	data := BoxData{
 		ID:       box.ID,
@@ -369,8 +378,9 @@ func boxData(box state.BoxRecord) BoxData {
 		Branch:   box.Branch,
 		Loopback: box.Loopback,
 		URLs: URLs{
-			Webtop:  WebtopURL(box),
-			Gateway: GatewayURL(box),
+			Webtop:     WebtopURL(box),
+			Gateway:    GatewayURL(box),
+			BrowserCDP: BrowserCDPURL(box),
 		},
 	}
 	if box.Ports.Size != 0 {
@@ -379,6 +389,7 @@ func boxData(box state.BoxRecord) BoxData {
 			WebtopHTTPS: box.Ports.HTTPS(),
 			SSH:         box.Ports.SSH(),
 			Gateway:     box.Ports.Gateway(),
+			BrowserCDP:  box.Ports.BrowserCDP(),
 		}
 	}
 	if !box.CreatedAt.IsZero() {
@@ -448,6 +459,9 @@ func humanBox(box state.BoxRecord) string {
 	}
 	if url := WebtopURL(box); url != "" {
 		fmt.Fprintf(&result, "Webtop:   %s\n", url)
+	}
+	if url := BrowserCDPURL(box); url != "" {
+		fmt.Fprintf(&result, "Browser CDP: %s\n", url)
 	}
 	if url := GatewayURL(box); url != "" {
 		fmt.Fprintf(&result, "Gateway:  %s\n", url)
