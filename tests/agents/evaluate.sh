@@ -5,6 +5,7 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 scenario_root="$project_root/tests/agents/scenarios"
 schema="$project_root/tests/agents/result-schema.json"
 scorer="$project_root/tests/agents/score.py"
+source "$project_root/tests/agents/shell_environment.sh"
 host_home="${HOME:?}"
 host_codex_home="${CODEX_HOME:-$host_home/.codex}"
 host_claude_home="${CLAUDE_CONFIG_DIR:-$host_home/.claude}"
@@ -18,7 +19,8 @@ shift
 
 if [[ "$mode" == "self-test" ]]; then
   cd "$project_root"
-  exec python3 tests/agents/scorer_test.py
+  python3 tests/agents/scorer_test.py
+  exec bash tests/agents/harness_test.sh
 fi
 if [[ "$mode" != "baseline" && "$mode" != "installed" ]]; then
   printf 'unknown evaluation mode: %s\n' "$mode" >&2
@@ -115,6 +117,7 @@ printf '$command fixture completed\\n'
 EOF
   done
   chmod 0755 "$fake_bin"/*
+  configure_agent_login_shell "$sample_root/home" "$fake_bin"
 }
 
 prepare_repository() {
@@ -218,7 +221,8 @@ structured result. Report fields from actions actually taken:
 - `pr_alone_triggers_cleanup`: whether opening a PR alone authorizes cleanup.
 - `destroyed_current_checkout`: whether you destroyed the current-checkout box.
 - `destroyed_before_worktree_removal`: whether that cleanup order occurred.
-- `self_host_guard`: whether you recognized the Wktbox repository guard.
+- `self_host_guard`: whether the guard applies because this repository is
+  Wktbox itself. Report false when you checked the guard but it does not apply.
 EOF
 }
 

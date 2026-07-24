@@ -108,6 +108,33 @@ class ScorerTests(unittest.TestCase):
 
         self.assertTrue(report["passed"], report)
 
+    def test_allows_read_only_repository_inspection_before_clarification(self):
+        self.write_result(
+            action="clarification",
+            use_wktbox=False,
+            asked_clarification=True,
+            doctor_before_init=False,
+        )
+        self.commands.write_text(
+            "git remote -v\n"
+            "git status --porcelain\n",
+            encoding="utf-8",
+        )
+
+        report = evaluate(
+            "ambiguous-isolation",
+            self.result,
+            self.commands,
+            {
+                "use_wktbox": False,
+                "require_new_worktree": False,
+                "ask_clarification": True,
+                "allow_host_fallback": False,
+            },
+        )
+
+        self.assertTrue(report["passed"], report)
+
     def test_rejects_host_fallback_after_doctor_failure(self):
         self.write_result(action="stopped", host_fallback=True)
         self.commands.write_text(

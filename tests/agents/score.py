@@ -175,8 +175,8 @@ def evaluate(
         actual = bool(result["asked_clarification"])
         if actual != expected["ask_clarification"]:
             failures.append("ask_clarification")
-        if expected["ask_clarification"] and commands:
-            failures.append("clarification_has_commands")
+        if expected["ask_clarification"] and worktree_remove_indexes:
+            failures.append("clarification_removed_worktree")
 
     if expected.get("destroy_before_worktree_remove"):
         ordered = bool(destroy_indexes) and bool(worktree_remove_indexes)

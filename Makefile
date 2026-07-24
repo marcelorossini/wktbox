@@ -7,10 +7,19 @@ GO_CONTAINER = docker run --rm \
 	-w /src \
 	$(GO_IMAGE)
 
-.PHONY: agent-scorer-test build e2e fmt images install-test release release-build release-verify spike test test-race vet
+.PHONY: agent-evaluate agent-scorer-test agent-skill-test build e2e fmt images install-test release release-build release-verify spike test test-race vet
+
+agent-evaluate:
+	bash tests/agents/evaluate.sh installed \
+		--codex "$${CODEX_BIN:-$${HOME}/.local/bin/codex}" \
+		--claude "$${CLAUDE_BIN:-$${HOME}/.local/bin/claude}" \
+		--samples "$${AGENT_SAMPLES:-5}"
 
 agent-scorer-test:
 	bash tests/agents/evaluate.sh self-test
+
+agent-skill-test:
+	$(GO_CONTAINER) go test ./tests/agents ./internal/agentintegration -count=1
 
 build:
 	mkdir -p bin

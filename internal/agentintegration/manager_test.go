@@ -277,7 +277,8 @@ func TestInstallUsesBundledAssetsByDefault(t *testing.T) {
 		filepath.Join(report.Targets[0].SkillPath, "SKILL.md"),
 	)
 	if !strings.Contains(skill, "wktbox-isolated-development") ||
-		!strings.Contains(skill, "baseline workflow") {
+		!strings.Contains(skill, "wktbox doctor --path <checkout>") ||
+		!strings.Contains(skill, "wktbox run --path <checkout> --") {
 		t.Fatalf("skill = %q", skill)
 	}
 	if report.Targets[0].ActualDigest != report.Targets[0].ExpectedDigest {
