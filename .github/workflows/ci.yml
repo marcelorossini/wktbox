@@ -17,8 +17,8 @@ jobs:
     name: Go, archives, installers, skills, and docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -47,7 +47,7 @@ jobs:
     name: Runtime images and OCI metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build development images
         run: make images
       - name: Test OCI image labels
@@ -63,7 +63,7 @@ jobs:
     name: Docker isolation E2E
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run all 13 automatic-loopback scenarios
         run: bash tests/e2e/automatic_loopback.sh
       - name: Run two-worktree isolation E2E
@@ -73,7 +73,7 @@ jobs:
     name: PowerShell installer
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Pester
         shell: pwsh
         run: Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
