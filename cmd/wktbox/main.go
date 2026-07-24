@@ -1,17 +1,31 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"wktbox/internal/agentintegration"
 	"wktbox/internal/app"
 	"wktbox/internal/cli"
 	"wktbox/internal/output"
+	"wktbox/internal/portforward"
 	"wktbox/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "__port-relay" {
+		if err := portforward.RunRelayProcessArgs(
+			context.Background(),
+			os.Args[2:],
+			os.Stderr,
+		); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "wktbox port relay:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	streams := cli.Streams{
 		In:       os.Stdin,
 		Out:      os.Stdout,
