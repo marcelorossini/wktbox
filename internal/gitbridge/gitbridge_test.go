@@ -78,6 +78,40 @@ func TestMountedModeRejectsGitDirectoryOutsideCommonDirectory(t *testing.T) {
 	}
 }
 
+func TestMountedModeSkipsWorkspaceWithoutGitMetadata(t *testing.T) {
+	bridge, err := gitbridge.Prepare(
+		discovery.Worktree{Path: "/workspace"},
+		config.GitMounted,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bridge.SkippedReason == "" {
+		t.Fatal("expected mounted bridge to be skipped")
+	}
+	if len(bridge.Mounts) != 0 || len(bridge.Environment) != 0 ||
+		bridge.RequiresValidation {
+		t.Fatalf("skipped bridge exposed Git metadata: %#v", bridge)
+	}
+}
+
+func TestMountedModeSkipsSelectedGitSubdirectory(t *testing.T) {
+	worktree := testLinkedWorktree()
+	worktree.GitRoot = filepath.Dir(worktree.Path)
+
+	bridge, err := gitbridge.Prepare(worktree, config.GitMounted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bridge.SkippedReason == "" ||
+		!strings.Contains(bridge.SkippedReason, "below") {
+		t.Fatalf("bridge = %#v", bridge)
+	}
+	if len(bridge.Mounts) != 0 {
+		t.Fatalf("mounts = %#v", bridge.Mounts)
+	}
+}
+
 type validationRunner struct {
 	results []process.Result
 	errors  []error
@@ -136,6 +170,7 @@ func testLinkedWorktree() discovery.Worktree {
 	common := filepath.Join("/repo", ".git")
 	return discovery.Worktree{
 		Path:      filepath.Join("/repo-trees", "feature-auth"),
+		GitRoot:   filepath.Join("/repo-trees", "feature-auth"),
 		CommonDir: common,
 		GitDir:    filepath.Join(common, "worktrees", "feature-auth"),
 		Branch:    "feature/auth",

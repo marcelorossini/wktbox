@@ -149,7 +149,7 @@ func (probes *HostProbes) linuxContainers(ctx context.Context) ProbeResult {
 func (probes *HostProbes) bindMount(ctx context.Context) ProbeResult {
 	worktree, err := probes.resolveWorktree(ctx)
 	if err != nil {
-		return ResultFromError(err, "Fix the worktree path before testing bind mounts.")
+		return ResultFromError(err, "Fix the workspace path before testing bind mounts.")
 	}
 	image := probes.dindImage(ctx)
 	mount := "type=bind,source=" + worktree.Path + ",target=/workspace,readonly"
@@ -168,27 +168,44 @@ func (probes *HostProbes) bindMount(ctx context.Context) ProbeResult {
 	if err != nil {
 		return ResultFromError(
 			err,
-			"Share the worktree drive with Docker Desktop and verify the path is local.",
+			"Share the workspace drive with Docker Desktop and verify the path is local.",
 		)
 	}
-	return ProbeResult{Status: Pass, Message: "Docker can bind-mount the worktree read-only"}
+	return ProbeResult{Status: Pass, Message: "Docker can bind-mount the workspace read-only"}
 }
 
 func (probes *HostProbes) gitWorktree(ctx context.Context) ProbeResult {
 	worktree, err := probes.resolveWorktree(ctx)
 	if err != nil {
-		return ResultFromError(err, "Run wktbox from inside a valid Git worktree or pass --path.")
+		return ResultFromError(err, "Pass an existing directory with --path.")
+	}
+	if !worktree.HasGit() {
+		return ProbeResult{
+			Status:      Warn,
+			Message:     fmt.Sprintf("Workspace %s is valid without Git metadata", worktree.Path),
+			Remediation: "No action is required; initialize Git only when the project itself needs it.",
+		}
+	}
+	if !worktree.IsGitRoot() {
+		return ProbeResult{
+			Status: Warn,
+			Message: fmt.Sprintf(
+				"Workspace %s is inside Git worktree %s; the selected path remains authoritative",
+				worktree.Path,
+				worktree.GitRoot,
+			),
+		}
 	}
 	return ProbeResult{
 		Status:  Pass,
-		Message: fmt.Sprintf("Git worktree %s on branch %s", worktree.Path, worktree.Branch),
+		Message: fmt.Sprintf("Workspace %s uses Git worktree on branch %s", worktree.Path, worktree.Branch),
 	}
 }
 
 func (probes *HostProbes) projectEnvironment(ctx context.Context) ProbeResult {
 	worktree, err := probes.resolveWorktree(ctx)
 	if err != nil {
-		return ResultFromError(err, "Fix the worktree before validating project env.")
+		return ResultFromError(err, "Fix the workspace before validating project env.")
 	}
 	cfg, err := probes.loadConfig(ctx)
 	if err != nil {
@@ -292,7 +309,7 @@ func (probes *HostProbes) dindTLS(ctx context.Context) ProbeResult {
 func (probes *HostProbes) gitBridge(ctx context.Context) ProbeResult {
 	worktree, err := probes.resolveWorktree(ctx)
 	if err != nil {
-		return ResultFromError(err, "Fix the worktree before validating its Git bridge.")
+		return ResultFromError(err, "Fix the workspace before validating its Git bridge.")
 	}
 	cfg, err := probes.loadConfig(ctx)
 	if err != nil {
@@ -301,6 +318,13 @@ func (probes *HostProbes) gitBridge(ctx context.Context) ProbeResult {
 	bridge, err := gitbridge.Prepare(worktree, cfg.Git.Mode)
 	if err != nil {
 		return ResultFromError(err, "Use git.mode: host for this repository layout.")
+	}
+	if bridge.SkippedReason != "" {
+		return ProbeResult{
+			Status:      Warn,
+			Message:     "Git bridge disabled: " + bridge.SkippedReason,
+			Remediation: "Use Git on the host when this workspace needs Git operations.",
+		}
 	}
 	if !bridge.RequiresValidation {
 		return ProbeResult{

@@ -851,6 +851,8 @@ func ErrorCode(err error) string {
 		return "selector_ambiguous"
 	case errors.Is(err, sandbox.ErrConnectionNotFound):
 		return "connection_not_found"
+	case errors.Is(err, discovery.ErrInvalidWorkspace):
+		return "invalid_workspace"
 	case errors.Is(err, discovery.ErrNotWorktree):
 		return "not_a_worktree"
 	default:

@@ -150,6 +150,22 @@ func (runner discoveryRunner) Run(
 	}
 }
 
+type noGitRunner struct{}
+
+func (noGitRunner) Run(
+	_ context.Context,
+	_ string,
+	arguments ...string,
+) (process.Result, error) {
+	if strings.Contains(strings.Join(arguments, " "), "--show-toplevel") {
+		return process.Result{
+			ExitCode: 128,
+			Stderr:   "fatal: not a git repository",
+		}, errors.New("exit status 128")
+	}
+	return process.Result{}, nil
+}
+
 type interactiveRunner struct {
 	invocations []executor.Invocation
 	code        int
@@ -209,6 +225,36 @@ func TestResolveAndEnsureBuildSandboxSpecFromWorktree(t *testing.T) {
 		manager.ensuredSpec.Version != "test" ||
 		manager.ensuredSpec.Timezone != "America/Sao_Paulo" {
 		t.Fatalf("spec = %#v", manager.ensuredSpec)
+	}
+}
+
+func TestResolveBuildsPathIdentityForPlainDirectory(t *testing.T) {
+	workspace := t.TempDir()
+	service := app.New(app.Options{
+		ProcessRunner:     noGitRunner{},
+		Manager:           &fakeManager{},
+		InteractiveRunner: &interactiveRunner{},
+		Allocator:         ports.NewAllocator(23000, 10),
+		Environ:           map[string]string{},
+		Version:           "test",
+	})
+
+	resolution, err := service.Resolve(
+		context.Background(),
+		app.Request{Path: workspace},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Worktree.Path != workspace {
+		t.Fatalf("workspace path = %q", resolution.Worktree.Path)
+	}
+	if resolution.Worktree.HasGit() {
+		t.Fatalf("unexpected Git metadata: %#v", resolution.Worktree)
+	}
+	want := identity.ForPath(workspace, identity.Unix)
+	if resolution.Spec.ID != want.ID {
+		t.Fatalf("workspace ID = %q, want %q", resolution.Spec.ID, want.ID)
 	}
 }
 

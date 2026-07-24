@@ -218,7 +218,10 @@ func (application *App) Resolve(
 	if err != nil {
 		return Resolution{}, err
 	}
-	boxIdentity := identity.ForWorktree(worktree.CommonDir, worktree.Path, platform)
+	boxIdentity := identity.ForPath(worktree.Path, platform)
+	if worktree.IsGitRoot() {
+		boxIdentity = identity.ForWorktree(worktree.CommonDir, worktree.Path, platform)
+	}
 	spec := sandbox.Spec{
 		ID:         boxIdentity.ID,
 		Name:       worktree.DisplayName,
@@ -247,7 +250,7 @@ func ValidateWorktreePath(value string, platform identity.Platform) error {
 	normalized := strings.ReplaceAll(value, "/", `\`)
 	if strings.HasPrefix(normalized, `\\`) {
 		return fmt.Errorf(
-			"UNC worktree paths are not supported by the Windows MVP: %s",
+			"UNC workspace paths are not supported by the Windows MVP: %s",
 			value,
 		)
 	}

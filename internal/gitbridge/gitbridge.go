@@ -27,6 +27,7 @@ type Bridge struct {
 	Mounts             []Mount
 	Environment        map[string]string
 	RequiresValidation bool
+	SkippedReason      string
 }
 
 type ValidationRunner interface {
@@ -38,6 +39,16 @@ func Prepare(worktree discovery.Worktree, mode config.GitMode) (Bridge, error) {
 	case config.GitHost:
 		return Bridge{}, nil
 	case config.GitMounted:
+		if !worktree.HasGit() {
+			return Bridge{
+				SkippedReason: "workspace has no Git metadata",
+			}, nil
+		}
+		if !worktree.IsGitRoot() {
+			return Bridge{
+				SkippedReason: "selected workspace is below the Git worktree root",
+			}, nil
+		}
 		return prepareMounted(worktree)
 	default:
 		return Bridge{}, fmt.Errorf("unsupported git mode %q", mode)

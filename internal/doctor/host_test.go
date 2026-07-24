@@ -15,8 +15,9 @@ import (
 )
 
 type scriptedProcessRunner struct {
-	worktree string
-	calls    [][]string
+	worktree   string
+	withoutGit bool
+	calls      [][]string
 }
 
 func (runner *scriptedProcessRunner) Run(
@@ -28,6 +29,13 @@ func (runner *scriptedProcessRunner) Run(
 	runner.calls = append(runner.calls, call)
 	joined := strings.Join(call, " ")
 	switch {
+	case runner.withoutGit &&
+		strings.Contains(joined, "git ") &&
+		strings.Contains(joined, "--show-toplevel"):
+		return process.Result{
+			ExitCode: 128,
+			Stderr:   "fatal: not a git repository",
+		}, errors.New("exit status 128")
 	case strings.Contains(joined, "git ") && strings.Contains(joined, "--show-toplevel"):
 		return process.Result{Stdout: runner.worktree + "\n"}, nil
 	case strings.Contains(joined, "git ") && strings.Contains(joined, "--git-common-dir"):
@@ -110,6 +118,52 @@ func TestMountedGitProbeRequiresRuntimeValidation(t *testing.T) {
 		!strings.Contains(result.Message, "git status failed") ||
 		!strings.Contains(result.Remediation, "git.mode: host") {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestHostProbesAcceptPlainWorkspaceWithWarnings(t *testing.T) {
+	workspace := t.TempDir()
+	if err := writeConfig(workspace, "mounted"); err != nil {
+		t.Fatal(err)
+	}
+	runner := &scriptedProcessRunner{
+		worktree:   workspace,
+		withoutGit: true,
+	}
+	probes := doctor.NewHostProbes(doctor.HostInput{
+		Runner:      runner,
+		Path:        workspace,
+		Environ:     map[string]string{},
+		Allocator:   ports.NewAllocator(23000, 10),
+		StateRoot:   t.TempDir(),
+		DindImage:   "docker:29.5.0-dind",
+		MinimumDisk: 1024,
+		FreeDisk: func(string) (uint64, error) {
+			return 4096, nil
+		},
+	})
+
+	report := doctor.Run(context.Background(), doctor.Input{Probes: probes})
+
+	if !report.OK {
+		t.Fatalf("report = %#v", report)
+	}
+	workspaceCheck := findCheck(t, report, doctor.CheckWorktree)
+	if workspaceCheck.Name != "Workspace path" ||
+		workspaceCheck.Status != doctor.Warn ||
+		!strings.Contains(workspaceCheck.Message, "Workspace") ||
+		!strings.Contains(workspaceCheck.Message, "without Git") {
+		t.Fatalf("workspace check = %#v", workspaceCheck)
+	}
+	mountCheck := findCheck(t, report, doctor.CheckBindMount)
+	if mountCheck.Name != "Workspace bind mount" ||
+		mountCheck.Status != doctor.Pass {
+		t.Fatalf("mount check = %#v", mountCheck)
+	}
+	bridgeCheck := findCheck(t, report, doctor.CheckGitBridge)
+	if bridgeCheck.Status != doctor.Warn ||
+		!strings.Contains(bridgeCheck.Message, "disabled") {
+		t.Fatalf("bridge check = %#v", bridgeCheck)
 	}
 }
 
