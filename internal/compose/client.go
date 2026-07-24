@@ -75,6 +75,27 @@ type ManagedProject struct {
 	GatewayEnabled bool
 }
 
+type ConnectionNetwork struct {
+	ID         string
+	Name       string
+	DockerName string
+	Version    string
+}
+
+type ConnectionEndpoint struct {
+	Network string
+	BoxID   string
+	Service string
+	Alias   string
+}
+
+type ConnectionNetworkStatus struct {
+	Exists       bool
+	Managed      bool
+	ConnectionID string
+	Endpoints    map[string]string
+}
+
 type Backend interface {
 	Up(context.Context, Project) error
 	Start(context.Context, Project) error
@@ -85,6 +106,11 @@ type Backend interface {
 	ListManaged(context.Context) ([]ManagedProject, error)
 	LoopbackStatus(context.Context, Project) (loopback.Status, error)
 	LoopbackSync(context.Context, Project) (loopback.Status, error)
+	EnsureConnectionNetwork(context.Context, ConnectionNetwork) error
+	InspectConnectionNetwork(context.Context, string) (ConnectionNetworkStatus, error)
+	ConnectConnectionEndpoint(context.Context, ConnectionEndpoint) error
+	DisconnectConnectionEndpoint(context.Context, ConnectionEndpoint) error
+	RemoveConnectionNetwork(context.Context, string) error
 }
 
 type Client struct {
@@ -249,6 +275,274 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 		return projects[left].ID < projects[right].ID
 	})
 	return projects, nil
+}
+
+func (client Client) EnsureConnectionNetwork(
+	ctx context.Context,
+	network ConnectionNetwork,
+) error {
+	if network.ID == "" || network.DockerName == "" {
+		return errors.New("invalid connection network")
+	}
+	status, err := client.InspectConnectionNetwork(ctx, network.DockerName)
+	if err != nil {
+		return err
+	}
+	if status.Exists {
+		return validateConnectionNetwork(status, network)
+	}
+
+	arguments := []string{
+		"network", "create",
+		"--driver", "bridge",
+		"--label", "io.wktbox.managed=true",
+		"--label", "io.wktbox.connection-id=" + network.ID,
+		"--label", "io.wktbox.connection-name=" + network.Name,
+		"--label", "io.wktbox.version=" + network.Version,
+		network.DockerName,
+	}
+	result, createErr := client.runner.Run(ctx, "docker", arguments...)
+	if createErr == nil {
+		return nil
+	}
+	if !containsAny(result, "already exists") {
+		return commandError("create connection network", result, createErr)
+	}
+	status, err = client.InspectConnectionNetwork(ctx, network.DockerName)
+	if err != nil {
+		return err
+	}
+	return validateConnectionNetwork(status, network)
+}
+
+func (client Client) InspectConnectionNetwork(
+	ctx context.Context,
+	name string,
+) (ConnectionNetworkStatus, error) {
+	result, err := client.runner.Run(
+		ctx,
+		"docker",
+		"network",
+		"inspect",
+		"--format",
+		"{{json .}}",
+		name,
+	)
+	if err != nil {
+		if containsAny(result, "no such network", "not found") {
+			return ConnectionNetworkStatus{
+				Endpoints: make(map[string]string),
+			}, nil
+		}
+		return ConnectionNetworkStatus{}, commandError(
+			"inspect connection network",
+			result,
+			err,
+		)
+	}
+
+	var document struct {
+		Labels     map[string]string `json:"Labels"`
+		Containers map[string]struct {
+			Name string `json:"Name"`
+		} `json:"Containers"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &document); err != nil {
+		return ConnectionNetworkStatus{}, fmt.Errorf(
+			"decode connection network: %w",
+			err,
+		)
+	}
+	status := ConnectionNetworkStatus{
+		Exists:       true,
+		Managed:      document.Labels["io.wktbox.managed"] == "true",
+		ConnectionID: document.Labels["io.wktbox.connection-id"],
+		Endpoints:    make(map[string]string),
+	}
+	containerIDs := make([]string, 0, len(document.Containers))
+	for containerID := range document.Containers {
+		containerIDs = append(containerIDs, containerID)
+	}
+	sort.Strings(containerIDs)
+	for _, containerID := range containerIDs {
+		labels, err := client.containerLabels(ctx, containerID)
+		if err != nil {
+			return ConnectionNetworkStatus{}, err
+		}
+		boxID := labels["io.wktbox.box-id"]
+		service := labels["com.docker.compose.service"]
+		if boxID != "" && service != "" {
+			status.Endpoints[boxID+"/"+service] = containerID
+		}
+	}
+	return status, nil
+}
+
+func (client Client) ConnectConnectionEndpoint(
+	ctx context.Context,
+	endpoint ConnectionEndpoint,
+) error {
+	containerID, err := client.resolveServiceContainer(
+		ctx,
+		endpoint.BoxID,
+		endpoint.Service,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+	arguments := []string{"network", "connect"}
+	if endpoint.Alias != "" {
+		arguments = append(arguments, "--alias", endpoint.Alias)
+	}
+	arguments = append(arguments, endpoint.Network, containerID)
+	result, err := client.runner.Run(ctx, "docker", arguments...)
+	if err != nil && !containsAny(result, "already exists", "already connected") {
+		return commandError("connect connection endpoint", result, err)
+	}
+	return nil
+}
+
+func (client Client) DisconnectConnectionEndpoint(
+	ctx context.Context,
+	endpoint ConnectionEndpoint,
+) error {
+	containerID, err := client.resolveServiceContainer(
+		ctx,
+		endpoint.BoxID,
+		endpoint.Service,
+		true,
+	)
+	if errors.Is(err, errServiceContainerNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	result, err := client.runner.Run(
+		ctx,
+		"docker",
+		"network",
+		"disconnect",
+		endpoint.Network,
+		containerID,
+	)
+	if err != nil && !containsAny(
+		result,
+		"is not connected",
+		"no such network",
+		"not found",
+	) {
+		return commandError("disconnect connection endpoint", result, err)
+	}
+	return nil
+}
+
+func (client Client) RemoveConnectionNetwork(
+	ctx context.Context,
+	name string,
+) error {
+	result, err := client.runner.Run(ctx, "docker", "network", "rm", name)
+	if err != nil && !containsAny(result, "no such network", "not found") {
+		return commandError("remove connection network", result, err)
+	}
+	return nil
+}
+
+var errServiceContainerNotFound = errors.New("service container not found")
+
+func (client Client) resolveServiceContainer(
+	ctx context.Context,
+	boxID string,
+	service string,
+	includeStopped bool,
+) (string, error) {
+	arguments := []string{"ps"}
+	if includeStopped {
+		arguments = append(arguments, "-a")
+	}
+	arguments = append(
+		arguments,
+		"--filter", "label=io.wktbox.box-id="+boxID,
+		"--filter", "label=com.docker.compose.service="+service,
+	)
+	if !includeStopped {
+		arguments = append(arguments, "--filter", "status=running")
+	}
+	arguments = append(arguments, "--format", "{{.ID}}")
+	result, err := client.runner.Run(ctx, "docker", arguments...)
+	if err != nil {
+		return "", commandError("resolve connection endpoint", result, err)
+	}
+	var ids []string
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if id := strings.TrimSpace(line); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return "", fmt.Errorf(
+			"%w: box %s service %s",
+			errServiceContainerNotFound,
+			boxID,
+			service,
+		)
+	}
+	if len(ids) != 1 {
+		return "", fmt.Errorf(
+			"resolve connection endpoint: box %s service %s has %d containers",
+			boxID,
+			service,
+			len(ids),
+		)
+	}
+	return ids[0], nil
+}
+
+func (client Client) containerLabels(
+	ctx context.Context,
+	containerID string,
+) (map[string]string, error) {
+	result, err := client.runner.Run(
+		ctx,
+		"docker",
+		"inspect",
+		"--format",
+		"{{json .Config.Labels}}",
+		containerID,
+	)
+	if err != nil {
+		return nil, commandError("inspect connection endpoint", result, err)
+	}
+	var labels map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &labels); err != nil {
+		return nil, fmt.Errorf("decode connection endpoint labels: %w", err)
+	}
+	return labels, nil
+}
+
+func validateConnectionNetwork(
+	status ConnectionNetworkStatus,
+	network ConnectionNetwork,
+) error {
+	if !status.Exists || !status.Managed || status.ConnectionID != network.ID {
+		return fmt.Errorf(
+			"connection network %q exists but is not managed by Wktbox for connection %s",
+			network.DockerName,
+			network.ID,
+		)
+	}
+	return nil
+}
+
+func containsAny(result process.Result, fragments ...string) bool {
+	output := strings.ToLower(result.Stdout + "\n" + result.Stderr)
+	for _, fragment := range fragments {
+		if strings.Contains(output, strings.ToLower(fragment)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (client Client) LoopbackStatus(

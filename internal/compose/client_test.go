@@ -190,6 +190,154 @@ func TestLoopbackStatusExecutesReadOnlySidecarCommand(t *testing.T) {
 	}
 }
 
+func TestEnsureConnectionNetworkCreatesLabeledPrivateBridge(t *testing.T) {
+	runner := &recordingRunner{
+		results: []process.Result{
+			{Stderr: "Error: No such network: wktbox-connect-64f420a77f31"},
+			{Stdout: "network-id\n"},
+		},
+		errors: []error{errors.New("exit status 1"), nil},
+	}
+	client := compose.NewClient(runner)
+	network := compose.ConnectionNetwork{
+		ID:         "64f420a77f31",
+		Name:       "dev-stack",
+		DockerName: "wktbox-connect-64f420a77f31",
+		Version:    "dev",
+	}
+
+	if err := client.EnsureConnectionNetwork(context.Background(), network); err != nil {
+		t.Fatal(err)
+	}
+
+	got := strings.Join(runner.calls[1], " ")
+	for _, want := range []string{
+		"docker network create",
+		"--driver bridge",
+		"--label io.wktbox.managed=true",
+		"--label io.wktbox.connection-id=64f420a77f31",
+		"--label io.wktbox.connection-name=dev-stack",
+		"--label io.wktbox.version=dev",
+		"wktbox-connect-64f420a77f31",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("call %q missing %q", got, want)
+		}
+	}
+}
+
+func TestEnsureConnectionNetworkRejectsUnmanagedNameCollision(t *testing.T) {
+	runner := &recordingRunner{results: []process.Result{{Stdout: `{
+		"Name":"wktbox-connect-64f420a77f31",
+		"Labels":{"owner":"other"},
+		"Containers":{}
+	}`}}}
+	client := compose.NewClient(runner)
+
+	err := client.EnsureConnectionNetwork(context.Background(), compose.ConnectionNetwork{
+		ID:         "64f420a77f31",
+		DockerName: "wktbox-connect-64f420a77f31",
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "not managed by Wktbox") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestConnectEndpointUsesCurrentServiceContainerAndAlias(t *testing.T) {
+	runner := &recordingRunner{results: []process.Result{
+		{Stdout: "container-id\n"},
+		{},
+	}}
+	client := compose.NewClient(runner)
+
+	err := client.ConnectConnectionEndpoint(
+		context.Background(),
+		compose.ConnectionEndpoint{
+			Network: "wktbox-connect-64f420a77f31",
+			BoxID:   "a4f8c9137d2b",
+			Service: "docker",
+			Alias:   "a4f8c9137d2b.wktbox",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantResolve := "docker ps --filter label=io.wktbox.box-id=a4f8c9137d2b --filter label=com.docker.compose.service=docker --filter status=running --format {{.ID}}"
+	if got := strings.Join(runner.calls[0], " "); got != wantResolve {
+		t.Fatalf("resolve call = %q", got)
+	}
+	wantConnect := "docker network connect --alias a4f8c9137d2b.wktbox wktbox-connect-64f420a77f31 container-id"
+	if got := strings.Join(runner.calls[1], " "); got != wantConnect {
+		t.Fatalf("connect call = %q", got)
+	}
+}
+
+func TestInspectConnectionNetworkReportsManagedEndpoints(t *testing.T) {
+	runner := &recordingRunner{results: []process.Result{
+		{Stdout: `{
+			"Name":"wktbox-connect-64f420a77f31",
+			"Labels":{
+				"io.wktbox.managed":"true",
+				"io.wktbox.connection-id":"64f420a77f31"
+			},
+			"Containers":{
+				"docker-id":{"Name":"wktbox-a-docker-1","IPv4Address":"172.30.0.2/16"},
+				"webtop-id":{"Name":"wktbox-a-webtop-1","IPv4Address":"172.30.0.3/16"}
+			}
+		}`},
+		{Stdout: `{"io.wktbox.box-id":"a4f8c9137d2b","com.docker.compose.service":"docker"}`},
+		{Stdout: `{"io.wktbox.box-id":"a4f8c9137d2b","com.docker.compose.service":"webtop"}`},
+	}}
+	client := compose.NewClient(runner)
+
+	got, err := client.InspectConnectionNetwork(
+		context.Background(),
+		"wktbox-connect-64f420a77f31",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Exists ||
+		got.ConnectionID != "64f420a77f31" ||
+		got.Endpoints["a4f8c9137d2b/docker"] != "docker-id" ||
+		got.Endpoints["a4f8c9137d2b/webtop"] != "webtop-id" {
+		t.Fatalf("status = %#v", got)
+	}
+}
+
+func TestDisconnectAndRemoveConnectionResourcesAreIdempotent(t *testing.T) {
+	runner := &recordingRunner{
+		results: []process.Result{
+			{Stdout: "container-id\n"},
+			{Stderr: "container-id is not connected to network"},
+			{Stderr: "Error: No such network"},
+		},
+		errors: []error{
+			nil,
+			errors.New("exit status 1"),
+			errors.New("exit status 1"),
+		},
+	}
+	client := compose.NewClient(runner)
+	endpoint := compose.ConnectionEndpoint{
+		Network: "wktbox-connect-64f420a77f31",
+		BoxID:   "a4f8c9137d2b",
+		Service: "webtop",
+	}
+
+	if err := client.DisconnectConnectionEndpoint(context.Background(), endpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RemoveConnectionNetwork(
+		context.Background(),
+		endpoint.Network,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLogsForwardsServiceAndFollowFlag(t *testing.T) {
 	runner := &recordingRunner{results: []process.Result{{Stdout: "docker log\n"}}}
 	client := compose.NewClient(runner)

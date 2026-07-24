@@ -97,6 +97,41 @@ func (backend *fakeBackend) LoopbackSync(
 	return backend.loopback, backend.loopbackErr
 }
 
+func (backend *fakeBackend) EnsureConnectionNetwork(
+	context.Context,
+	compose.ConnectionNetwork,
+) error {
+	return backend.err
+}
+
+func (backend *fakeBackend) InspectConnectionNetwork(
+	context.Context,
+	string,
+) (compose.ConnectionNetworkStatus, error) {
+	return compose.ConnectionNetworkStatus{}, backend.err
+}
+
+func (backend *fakeBackend) ConnectConnectionEndpoint(
+	context.Context,
+	compose.ConnectionEndpoint,
+) error {
+	return backend.err
+}
+
+func (backend *fakeBackend) DisconnectConnectionEndpoint(
+	context.Context,
+	compose.ConnectionEndpoint,
+) error {
+	return backend.err
+}
+
+func (backend *fakeBackend) RemoveConnectionNetwork(
+	context.Context,
+	string,
+) error {
+	return backend.err
+}
+
 func TestEnsureCreatesStartsAndPersistsReadyBox(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
