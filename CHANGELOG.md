@@ -6,22 +6,14 @@ All notable changes to Wktbox are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-24
+
 ### Added
 
 - Persistent `connect`, `connections`, and `disconnect` commands for explicit
   bidirectional networking between two or more boxes.
 - Stable `<box-id>.wktbox` discovery inside workload containers, with lifecycle
   reconciliation and human/JSON topology output.
-
-### Security
-
-- Documented that connected boxes share a trusted development network while
-  retaining separate DinD daemons and storage.
-
-## [0.1.0] - 2026-07-23
-
-### Added
-
 - Current-checkout and optional linked-worktree Docker isolation.
 - A dedicated privileged DinD daemon, Webtop, volumes, networks, images, and
   port namespace for every box.
@@ -36,6 +28,8 @@ All notable changes to Wktbox are documented here. The format follows
 
 ### Security
 
+- Documented that connected boxes share a trusted development network while
+  retaining separate DinD daemons and storage.
 - Documented the trusted-code boundary: Wktbox is operational isolation, not a
   sandbox for hostile code.
 - Kept the host Docker socket out of boxes and protected the internal DinD API
