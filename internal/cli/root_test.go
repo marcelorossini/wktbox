@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"wktbox/internal/agentintegration"
 	"wktbox/internal/app"
@@ -21,19 +22,21 @@ import (
 )
 
 type fakeService struct {
-	calls      []string
-	status     state.Status
-	runCode    int
-	runErr     error
-	box        state.BoxRecord
-	list       []state.BoxRecord
-	logOutput  string
-	doctorData any
-	syncStatus loopback.Status
-	syncErr    error
-	childOut   string
-	pruneData  prune.Report
-	pruneErr   error
+	calls       []string
+	status      state.Status
+	runCode     int
+	runErr      error
+	box         state.BoxRecord
+	list        []state.BoxRecord
+	logOutput   string
+	doctorData  any
+	syncStatus  loopback.Status
+	syncErr     error
+	childOut    string
+	pruneData   prune.Report
+	pruneErr    error
+	connection  state.ConnectionRecord
+	connections []state.ConnectionRecord
 }
 
 type fakeAgentManager struct {
@@ -87,6 +90,14 @@ func newFakeService() *fakeService {
 			Routes:      []loopback.Route{},
 			Warnings:    []loopback.Warning{},
 		},
+		connection: state.ConnectionRecord{
+			ID:        "64f420a77f31",
+			Name:      "dev-stack",
+			Network:   "wktbox-connect-64f420a77f31",
+			Members:   []string{box.ID},
+			Status:    state.ConnectionReady,
+			CreatedAt: time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
+		},
 	}
 }
 
@@ -119,6 +130,37 @@ func (fake *fakeService) Prune(
 ) (prune.Report, error) {
 	fake.calls = append(fake.calls, "Prune:"+boolString(force))
 	return fake.pruneData, fake.pruneErr
+}
+
+func (fake *fakeService) Connect(
+	_ context.Context,
+	selectors []string,
+	name string,
+) (state.ConnectionRecord, error) {
+	fake.calls = append(
+		fake.calls,
+		"Connect:"+strings.Join(selectors, "|")+":"+name,
+	)
+	return fake.connection, nil
+}
+
+func (fake *fakeService) Connections(
+	_ context.Context,
+	selector string,
+) ([]state.ConnectionRecord, error) {
+	fake.calls = append(fake.calls, "Connections:"+selector)
+	if fake.connections != nil {
+		return fake.connections, nil
+	}
+	return []state.ConnectionRecord{fake.connection}, nil
+}
+
+func (fake *fakeService) Disconnect(
+	_ context.Context,
+	selector string,
+) (state.ConnectionRecord, error) {
+	fake.calls = append(fake.calls, "Disconnect:"+selector)
+	return fake.connection, nil
 }
 
 func (fake *fakeService) Run(
@@ -425,11 +467,119 @@ func TestRootHelpListsEveryMVPCommand(t *testing.T) {
 	for _, name := range []string{
 		"up", "run", "exec", "compose", "shell", "open", "list",
 		"status", "logs", "stop", "restart", "destroy", "doctor",
-		"prune",
+		"prune", "connect", "connections", "disconnect",
 	} {
 		if !strings.Contains(help, name) {
 			t.Errorf("help does not list %q:\n%s", name, help)
 		}
+	}
+}
+
+func TestConnectAcceptsTwoOrMoreSelectorsAndName(t *testing.T) {
+	fake := newFakeService()
+	fake.connection.Members = []string{
+		"a4f8c9137d2b",
+		"dfe31c662a91",
+		"0a11ce55aa01",
+	}
+	fake.list = append(fake.list,
+		state.BoxRecord{
+			ID: "dfe31c662a91", Name: "api", Status: state.Ready,
+		},
+		state.BoxRecord{
+			ID: "0a11ce55aa01", Name: "worker", Status: state.Ready,
+		},
+	)
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
+	root.SetArgs([]string{
+		"connect", "a4f", "dfe", "0a1", "--name", "dev-stack",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(
+		t,
+		fake.calls,
+		"Connect:a4f|dfe|0a1:dev-stack",
+		"List",
+	)
+	output := streams.Out.(*bytes.Buffer).String()
+	for _, want := range []string{
+		"Connection dev-stack",
+		"a4f8c9137d2b.wktbox",
+		"dfe31c662a91.wktbox",
+		"0a11ce55aa01.wktbox",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestConnectRequiresAtLeastTwoSelectors(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"connect", "a4f"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("connect unexpectedly accepted one selector")
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("calls = %#v", fake.calls)
+	}
+}
+
+func TestConnectionsListsOrInspectsTopology(t *testing.T) {
+	for _, selector := range []string{"", "dev-stack"} {
+		t.Run(selector, func(t *testing.T) {
+			fake := newFakeService()
+			streams := testStreams()
+			root := cli.New(cli.Dependencies{Service: fake}, streams)
+			arguments := []string{"connections"}
+			if selector != "" {
+				arguments = append(arguments, selector)
+			}
+			root.SetArgs(arguments)
+
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+
+			assertCalls(
+				t,
+				fake.calls,
+				"Connections:"+selector,
+				"List",
+			)
+			if got := streams.Out.(*bytes.Buffer).String(); !strings.Contains(
+				got,
+				"a4f8c9137d2b.wktbox",
+			) {
+				t.Fatalf("output = %q", got)
+			}
+		})
+	}
+}
+
+func TestDisconnectUsesConnectionSelector(t *testing.T) {
+	fake := newFakeService()
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
+	root.SetArgs([]string{"disconnect", "dev-stack"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, fake.calls, "Disconnect:dev-stack")
+	if got := streams.Out.(*bytes.Buffer).String(); !strings.Contains(
+		got,
+		"dev-stack",
+	) {
+		t.Fatalf("output = %q", got)
 	}
 }
 

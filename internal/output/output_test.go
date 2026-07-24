@@ -128,6 +128,106 @@ func TestHumanBoxNeverPrintsInternalGeneratedPaths(t *testing.T) {
 	}
 }
 
+func TestConnectionsHumanOutputShowsAdjacency(t *testing.T) {
+	var stdout bytes.Buffer
+	boxes := map[string]state.BoxRecord{
+		"a4f8c9137d2b": {
+			ID: "a4f8c9137d2b", Name: "frontend", Status: state.Ready,
+		},
+		"dfe31c662a91": {
+			ID: "dfe31c662a91", Name: "api", Status: state.Ready,
+		},
+	}
+	record := state.ConnectionRecord{
+		ID:      "64f420a77f31",
+		Name:    "dev-stack",
+		Network: "wktbox-connect-64f420a77f31",
+		Members: []string{"a4f8c9137d2b", "dfe31c662a91"},
+		Status:  state.ConnectionReady,
+	}
+
+	err := output.New(output.Options{Out: &stdout}).Connections(
+		[]state.ConnectionRecord{record},
+		boxes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		"Connection dev-stack (64f420a77f31) is ready",
+		"Network: wktbox-connect-64f420a77f31",
+		"frontend (a4f8c9137d2b) -> a4f8c9137d2b.wktbox [ready]",
+		"api (dfe31c662a91) -> dfe31c662a91.wktbox [ready]",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestConnectionsJSONUsesStablePublicShape(t *testing.T) {
+	var stdout bytes.Buffer
+	boxes := map[string]state.BoxRecord{
+		"a4f8c9137d2b": {
+			ID: "a4f8c9137d2b", Name: "frontend", Status: state.Ready,
+		},
+	}
+	record := state.ConnectionRecord{
+		ID:           "64f420a77f31",
+		Name:         "dev-stack",
+		Network:      "wktbox-connect-64f420a77f31",
+		Members:      []string{"a4f8c9137d2b"},
+		Status:       state.ConnectionDegraded,
+		CreatedAt:    time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
+		ReconciledAt: time.Date(2026, 7, 23, 12, 0, 1, 0, time.UTC),
+	}
+
+	err := output.New(output.Options{JSON: true, Out: &stdout}).Connections(
+		[]state.ConnectionRecord{record},
+		boxes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got []output.ConnectionData
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 ||
+		got[0].ID != record.ID ||
+		got[0].State != state.ConnectionDegraded ||
+		got[0].Members[0].Alias != "a4f8c9137d2b.wktbox" ||
+		got[0].Members[0].Name != "frontend" {
+		t.Fatalf("data = %#v", got)
+	}
+}
+
+func TestConnectionsEmptyAndQuietBehavior(t *testing.T) {
+	var human bytes.Buffer
+	if err := output.New(output.Options{Out: &human}).Connections(
+		nil,
+		nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := human.String(); got != "No connections found.\n" {
+		t.Fatalf("human = %q", got)
+	}
+
+	var quiet bytes.Buffer
+	if err := output.New(output.Options{Quiet: true, Out: &quiet}).Connections(
+		[]state.ConnectionRecord{{ID: "64f420a77f31"}},
+		nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if quiet.Len() != 0 {
+		t.Fatalf("quiet = %q", quiet.String())
+	}
+}
+
 func TestQuietSuppressesHumanMessagesButNotJSONData(t *testing.T) {
 	var human bytes.Buffer
 	humanRenderer := output.New(output.Options{Quiet: true, Out: &human})

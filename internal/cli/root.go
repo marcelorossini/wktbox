@@ -45,6 +45,9 @@ type Service interface {
 	Ensure(context.Context, app.Resolution) (state.BoxRecord, error)
 	Inspect(context.Context, app.Resolution) (state.BoxRecord, error)
 	List(context.Context) ([]state.BoxRecord, error)
+	Connect(context.Context, []string, string) (state.ConnectionRecord, error)
+	Connections(context.Context, string) ([]state.ConnectionRecord, error)
+	Disconnect(context.Context, string) (state.ConnectionRecord, error)
 	Prune(context.Context, bool) (prune.Report, error)
 	Run(context.Context, state.BoxRecord, []string, executor.Options) (int, error)
 	SyncLoopback(context.Context, state.BoxRecord) (loopback.Status, error)
@@ -154,6 +157,9 @@ func New(dependencies Dependencies, streams Streams) *cobra.Command {
 		commands.open(),
 		commands.list(),
 		commands.status(),
+		commands.connect(),
+		commands.connections(),
+		commands.disconnect(),
 		commands.logs(),
 		commands.stop(),
 		commands.restart(),
@@ -163,6 +169,100 @@ func New(dependencies Dependencies, streams Streams) *cobra.Command {
 		commands.agentCommands(),
 	)
 	return root
+}
+
+func (commands commandSet) connect() *cobra.Command {
+	var name string
+	command := &cobra.Command{
+		Use:   "connect <box> <box> [<box>...]",
+		Short: "Connect boxes through their published workload ports",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if commands.service == nil {
+				return errors.New("sandbox service is not configured")
+			}
+			record, err := commands.service.Connect(
+				command.Context(),
+				arguments,
+				name,
+			)
+			if err != nil {
+				return err
+			}
+			boxes, err := commands.service.List(command.Context())
+			if err != nil {
+				return err
+			}
+			return commands.renderer().Connection(record, boxRecordsByID(boxes))
+		},
+	}
+	command.Flags().StringVar(
+		&name,
+		"name",
+		"",
+		"optional lowercase connection name",
+	)
+	return command
+}
+
+func (commands commandSet) connections() *cobra.Command {
+	return &cobra.Command{
+		Use:   "connections [connection]",
+		Short: "Show cross-box connection topology",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if commands.service == nil {
+				return errors.New("sandbox service is not configured")
+			}
+			selector := ""
+			if len(arguments) == 1 {
+				selector = arguments[0]
+			}
+			records, err := commands.service.Connections(
+				command.Context(),
+				selector,
+			)
+			if err != nil {
+				return err
+			}
+			boxes, err := commands.service.List(command.Context())
+			if err != nil {
+				return err
+			}
+			recordsByID := boxRecordsByID(boxes)
+			if selector != "" && len(records) == 1 {
+				return commands.renderer().Connection(records[0], recordsByID)
+			}
+			return commands.renderer().Connections(records, recordsByID)
+		},
+	}
+}
+
+func (commands commandSet) disconnect() *cobra.Command {
+	return &cobra.Command{
+		Use:   "disconnect <connection>",
+		Short: "Remove one cross-box connection",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if commands.service == nil {
+				return errors.New("sandbox service is not configured")
+			}
+			record, err := commands.service.Disconnect(
+				command.Context(),
+				arguments[0],
+			)
+			if err != nil {
+				return err
+			}
+			name := record.Name
+			if name == "" {
+				name = record.ID
+			}
+			return commands.renderer().Message(
+				"Connection " + name + " disconnected.",
+			)
+		},
+	}
 }
 
 func (commands commandSet) prune() *cobra.Command {
@@ -745,9 +845,23 @@ func ErrorCode(err error) string {
 		return "confirmation_required"
 	case errors.Is(err, sandbox.ErrBoxNotFound):
 		return "box_not_found"
+	case errors.Is(err, sandbox.ErrSelectorNotFound):
+		return "selector_not_found"
+	case errors.Is(err, sandbox.ErrSelectorAmbiguous):
+		return "selector_ambiguous"
+	case errors.Is(err, sandbox.ErrConnectionNotFound):
+		return "connection_not_found"
 	case errors.Is(err, discovery.ErrNotWorktree):
 		return "not_a_worktree"
 	default:
 		return "runtime_error"
 	}
+}
+
+func boxRecordsByID(boxes []state.BoxRecord) map[string]state.BoxRecord {
+	result := make(map[string]state.BoxRecord, len(boxes))
+	for _, box := range boxes {
+		result[box.ID] = box
+	}
+	return result
 }

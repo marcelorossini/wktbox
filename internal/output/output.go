@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"wktbox/internal/agentintegration"
+	"wktbox/internal/connection"
 	"wktbox/internal/loopback"
 	"wktbox/internal/prune"
 	"wktbox/internal/state"
@@ -50,6 +51,24 @@ type BoxData struct {
 	CreatedAt  *time.Time      `json:"createdAt,omitempty"`
 	LastUsedAt *time.Time      `json:"lastUsedAt,omitempty"`
 	Loopback   loopback.Status `json:"loopback"`
+}
+
+type ConnectionMemberData struct {
+	ID     string       `json:"id"`
+	Name   string       `json:"name"`
+	Status state.Status `json:"status"`
+	Alias  string       `json:"alias"`
+}
+
+type ConnectionData struct {
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Network      string                 `json:"network"`
+	State        state.ConnectionStatus `json:"state"`
+	Members      []ConnectionMemberData `json:"members"`
+	CreatedAt    time.Time              `json:"createdAt"`
+	ReconciledAt *time.Time             `json:"reconciledAt,omitempty"`
+	Error        string                 `json:"error,omitempty"`
 }
 
 func New(options Options) Renderer {
@@ -102,6 +121,50 @@ func (renderer Renderer) Boxes(boxes []state.BoxRecord) error {
 			}
 		}
 		if _, err := fmt.Fprint(renderer.out, humanBox(box)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (renderer Renderer) Connection(
+	record state.ConnectionRecord,
+	boxes map[string]state.BoxRecord,
+) error {
+	if renderer.json {
+		return writeJSON(renderer.out, connectionData(record, boxes))
+	}
+	return renderer.Connections([]state.ConnectionRecord{record}, boxes)
+}
+
+func (renderer Renderer) Connections(
+	records []state.ConnectionRecord,
+	boxes map[string]state.BoxRecord,
+) error {
+	if renderer.json {
+		data := make([]ConnectionData, 0, len(records))
+		for _, record := range records {
+			data = append(data, connectionData(record, boxes))
+		}
+		return writeJSON(renderer.out, data)
+	}
+	if renderer.quiet {
+		return nil
+	}
+	if len(records) == 0 {
+		_, err := fmt.Fprintln(renderer.out, "No connections found.")
+		return err
+	}
+	for index, record := range records {
+		if index > 0 {
+			if _, err := fmt.Fprintln(renderer.out); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprint(
+			renderer.out,
+			humanConnection(record, boxes),
+		); err != nil {
 			return err
 		}
 	}
@@ -329,6 +392,47 @@ func boxData(box state.BoxRecord) BoxData {
 	return data
 }
 
+func connectionData(
+	record state.ConnectionRecord,
+	boxes map[string]state.BoxRecord,
+) ConnectionData {
+	name := record.Name
+	if name == "" {
+		name = record.ID
+	}
+	data := ConnectionData{
+		ID:        record.ID,
+		Name:      name,
+		Network:   record.Network,
+		State:     record.Status,
+		Members:   make([]ConnectionMemberData, 0, len(record.Members)),
+		CreatedAt: record.CreatedAt,
+		Error:     record.Error,
+	}
+	if !record.ReconciledAt.IsZero() {
+		reconciledAt := record.ReconciledAt
+		data.ReconciledAt = &reconciledAt
+	}
+	for _, id := range record.Members {
+		box, exists := boxes[id]
+		memberName := id
+		memberStatus := state.Error
+		if exists {
+			if box.Name != "" {
+				memberName = box.Name
+			}
+			memberStatus = box.Status
+		}
+		data.Members = append(data.Members, ConnectionMemberData{
+			ID:     id,
+			Name:   memberName,
+			Status: memberStatus,
+			Alias:  connection.Alias(id),
+		})
+	}
+	return data
+}
+
 func humanBox(box state.BoxRecord) string {
 	var result strings.Builder
 	name := box.Name
@@ -350,6 +454,37 @@ func humanBox(box state.BoxRecord) string {
 	}
 	if box.Loopback.EventStream != "" {
 		result.WriteString(humanLoopback(box.Loopback, false))
+	}
+	return result.String()
+}
+
+func humanConnection(
+	record state.ConnectionRecord,
+	boxes map[string]state.BoxRecord,
+) string {
+	data := connectionData(record, boxes)
+	var result strings.Builder
+	fmt.Fprintf(
+		&result,
+		"Connection %s (%s) is %s\n",
+		data.Name,
+		data.ID,
+		data.State,
+	)
+	fmt.Fprintf(&result, "Network: %s\n", data.Network)
+	result.WriteString("Members:\n")
+	for _, member := range data.Members {
+		fmt.Fprintf(
+			&result,
+			"  %s (%s) -> %s [%s]\n",
+			member.Name,
+			member.ID,
+			member.Alias,
+			member.Status,
+		)
+	}
+	if data.Error != "" {
+		fmt.Fprintf(&result, "Error: %s\n", data.Error)
 	}
 	return result.String()
 }
