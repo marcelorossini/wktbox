@@ -64,7 +64,8 @@ func TestConfigurationDocumentationCoversPrecedenceAndEverySection(t *testing.T)
 }
 
 func TestBuildScriptDeclaresEveryReleaseTarget(t *testing.T) {
-	body := readProjectFile(t, "scripts/build.sh")
+	body := readProjectFile(t, "scripts/build.sh") +
+		readProjectFile(t, "scripts/release_lib.sh")
 	for _, target := range []string{
 		"windows/amd64",
 		"windows/arm64",
