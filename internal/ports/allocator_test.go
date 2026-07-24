@@ -19,7 +19,7 @@ func TestReserveReturnsFirstAvailableBlock(t *testing.T) {
 	}
 	if block.HTTP() != 23000 || block.HTTPS() != 23001 ||
 		block.SSH() != 23002 || block.Gateway() != 23003 ||
-		block.ImportRelay() != 23004 {
+		block.ImportRelay() != 23004 || block.BrowserCDP() != 23005 {
 		t.Fatalf("service ports = %#v", block)
 	}
 }
@@ -61,8 +61,8 @@ func TestReserveHonorsCancelledContext(t *testing.T) {
 	}
 }
 
-func TestReserveRequiresRoomForImportRelay(t *testing.T) {
-	_, err := ports.NewAllocator(23000, 4).Reserve(context.Background(), nil)
+func TestReserveRequiresRoomForBrowserCDP(t *testing.T) {
+	_, err := ports.NewAllocator(23000, 5).Reserve(context.Background(), nil)
 	if !errors.Is(err, ports.ErrNoPorts) {
 		t.Fatalf("error = %v", err)
 	}

@@ -213,7 +213,7 @@ func validateSpec(spec Spec) error {
 	if strings.TrimSpace(spec.Worktree) == "" {
 		return errors.New("worktree path is required")
 	}
-	if spec.Ports.Size < 5 || spec.Ports.Start < 1 || spec.Ports.End() > 65535 {
+	if spec.Ports.Size < 6 || spec.Ports.Start < 1 || spec.Ports.End() > 65535 {
 		return fmt.Errorf("invalid port block %#v", spec.Ports)
 	}
 	if spec.Config.Runtime.DindImage == "" || spec.Config.Runtime.WebtopImage == "" {
@@ -234,6 +234,7 @@ func renderSandboxEnv(spec Spec, gatewayConfigPath string) []byte {
 	values := map[string]string{
 		"GATEWAY_CONFIG_PATH":  gatewayConfigPath,
 		"PGID":                 strconv.Itoa(spec.PGID),
+		"PORT_BROWSER_CDP":     strconv.Itoa(spec.Ports.BrowserCDP()),
 		"PORT_GATEWAY":         strconv.Itoa(spec.Ports.Gateway()),
 		"PORT_HTTP":            strconv.Itoa(spec.Ports.HTTP()),
 		"PORT_HTTPS":           strconv.Itoa(spec.Ports.HTTPS()),

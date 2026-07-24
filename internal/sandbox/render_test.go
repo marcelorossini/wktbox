@@ -207,6 +207,7 @@ func TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts(t *testing.T) {
 	if !reflect.DeepEqual(webtop.Ports, []string{
 		"127.0.0.1:${PORT_HTTP}:61000",
 		"127.0.0.1:${PORT_HTTPS}:61001",
+		"127.0.0.1:${PORT_BROWSER_CDP}:9223",
 	}) {
 		t.Fatalf("webtop ports = %#v", webtop.Ports)
 	}
@@ -229,6 +230,7 @@ func TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts(t *testing.T) {
 		"wktbox-loopback status --json",
 		"docker-certs:/certs:ro",
 		"condition: service_started",
+		"curl --fail --silent --show-error http://127.0.0.1:9223/json/version",
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("compose missing %q:\n%s", required, body)
@@ -236,6 +238,16 @@ func TestRenderIncludesRequiredLoopbackSidecarAndHighWebtopPorts(t *testing.T) {
 	}
 	if strings.Contains(body, "${PORT_SSH}:22") {
 		t.Fatal("reserved SSH offset is still published")
+	}
+}
+
+func TestRenderRejectsPortBlockWithoutBrowserOffset(t *testing.T) {
+	spec := testSpec()
+	spec.Ports.Size = 5
+
+	_, err := sandbox.Render(t.TempDir(), spec)
+	if err == nil || !strings.Contains(err.Error(), "invalid port block") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -417,6 +429,7 @@ func TestSandboxEnvContainsOnlyControlPlaneValues(t *testing.T) {
 		`WORKTREE_PATH="/repo tree/feature"`,
 		`PORT_HTTP="23000"`,
 		`PORT_GATEWAY="23003"`,
+		`PORT_BROWSER_CDP="23005"`,
 		`WKTBOX_DIND_IMAGE="docker:29.5.0-dind"`,
 		`GATEWAY_CONFIG_PATH="`,
 	} {

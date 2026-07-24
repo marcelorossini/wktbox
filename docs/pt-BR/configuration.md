@@ -81,6 +81,19 @@ compartilhada do desktop. `webtop.ssh.enabled: true` é rejeitado porque o produ
 ainda não instala nem configura um servidor SSH. O offset reservado a SSH não é
 publicado pelo Compose externo.
 
+### Chromium gráfico e CDP
+
+O Chromium gráfico permanece aberto em toda box pronta. O XFCE inicia um
+supervisor da sessão que reabre o navegador quando ele termina. O perfil
+persistente fica em `/config/.config/wktbox-chromium`, e o CDP escuta na porta
+de loopback `9222`. Um relay supervisionado pelo s6 escuta na porta interna
+`9223` e encaminha a publicação do host ao Chromium.
+
+A porta do host usa o offset `+5` do bloco de dez portas da box e é vinculada
+somente a `127.0.0.1`. Em um bloco iniciado em `23000`, o HTTP do Webtop usa
+`23000` e o CDP usa `23005`. Integrações devem consultar `urls.browserCdp` ou
+`ports.browserCdp` em `wktbox --json status`, sem derivar a porta.
+
 ### Localhost automático
 
 O localhost automático não possui seção de configuração. O `ports:` do Compose

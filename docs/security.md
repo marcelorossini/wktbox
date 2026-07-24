@@ -14,7 +14,7 @@ treat Wktbox as a virtual machine, tenant boundary, or malware sandbox.
 - The host `/var/run/docker.sock` is not mounted into Webtop or DinD.
 - The internal DinD API uses TLS at `docker:2376` and is not published to the
   host.
-- Host Webtop and gateway ports bind to `127.0.0.1`.
+- Host Webtop, Browser CDP, and gateway ports bind to `127.0.0.1`.
 - Automatic application routes bind only to `127.0.0.1` and `::1` inside the
   Webtop network namespace.
 - The sidecar receives read-only DinD certificates and uses a private Unix
@@ -54,6 +54,13 @@ forwarded.
 The Webtop and optional gateway listen on host loopback, but Wktbox does not add
 its own user authentication. Any local user or process able to connect to the
 assigned loopback port may attempt to access them.
+
+The graphical Chromium CDP endpoint is also unauthenticated. Any local process
+that can reach its `127.0.0.1` port can inspect and control pages, read or
+modify cookies and browser storage, and act with the browser profile's
+credentials. Closing Chromium is not a way to revoke access because the Webtop
+session supervisor opens it again. Stop the box when the endpoint must be
+unavailable.
 
 Internal TLS protects the DinD API from accidental access outside the box
 containers. It does not transform a privileged container into a VM.

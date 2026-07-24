@@ -612,7 +612,7 @@ func readyComposeStatus() compose.Status {
 		State:  compose.Running,
 		Containers: []compose.ContainerStatus{
 			{Service: "docker", State: "running", Health: "healthy"},
-			{Service: "webtop", State: "running"},
+			{Service: "webtop", State: "running", Health: "healthy"},
 			{Service: "loopback", State: "running", Health: "healthy"},
 			{Service: "interconnect", State: "running", Health: "healthy"},
 		},

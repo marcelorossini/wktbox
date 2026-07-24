@@ -67,6 +67,13 @@ func TestWriteBoxJSONUsesStablePublicContract(t *testing.T) {
 	if urls["gateway"] != "http://localhost:23003" {
 		t.Fatalf("gateway URL = %#v", urls["gateway"])
 	}
+	if urls["browserCdp"] != "http://localhost:23005" {
+		t.Fatalf("browser CDP URL = %#v", urls["browserCdp"])
+	}
+	portsData, ok := got["ports"].(map[string]any)
+	if !ok || portsData["browserCdp"] != float64(23005) {
+		t.Fatalf("ports = %#v", got["ports"])
+	}
 	if _, leaked := got["composePath"]; leaked {
 		t.Fatalf("internal path leaked in public JSON: %#v", got)
 	}
@@ -193,6 +200,9 @@ func TestHumanBoxNeverPrintsInternalGeneratedPaths(t *testing.T) {
 	}
 	if !strings.Contains(got, "feature-auth") || !strings.Contains(got, "http://localhost:23000") {
 		t.Fatalf("human output missing public fields: %s", got)
+	}
+	if !strings.Contains(got, "Browser CDP: http://localhost:23005") {
+		t.Fatalf("human output missing browser CDP URL: %s", got)
 	}
 }
 

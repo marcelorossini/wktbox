@@ -35,6 +35,10 @@ func (block Block) ImportRelay() int {
 	return block.Start + 4
 }
 
+func (block Block) BrowserCDP() int {
+	return block.Start + 5
+}
+
 func (block Block) End() int {
 	return block.Start + block.Size - 1
 }
@@ -52,7 +56,7 @@ func (allocator Allocator) Reserve(ctx context.Context, used []Block) (Block, er
 	if err := ctx.Err(); err != nil {
 		return Block{}, err
 	}
-	if allocator.base < 1 || allocator.blockSize < 5 {
+	if allocator.base < 1 || allocator.blockSize < 6 {
 		return Block{}, fmt.Errorf(
 			"%w: invalid range base=%d size=%d",
 			ErrNoPorts,

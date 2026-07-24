@@ -66,7 +66,7 @@ func (status Status) ReadyFor(project Project) bool {
 		case "docker":
 			dockerReady = container.State == "running" && container.Health == "healthy"
 		case "webtop":
-			webtopReady = container.State == "running"
+			webtopReady = container.State == "running" && container.Health == "healthy"
 		case "loopback":
 			loopbackReady = container.State == "running" && container.Health == "healthy"
 		case "interconnect":
@@ -225,7 +225,7 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 		project             ManagedProject
 		running             bool
 		dockerHealthy       bool
-		webtopRunning       bool
+		webtopHealthy       bool
 		loopbackHealthy     bool
 		interconnectHealthy bool
 	}
@@ -266,7 +266,8 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 			entry.dockerHealthy = containerRunning &&
 				strings.Contains(strings.ToLower(statusText), "(healthy)")
 		case "webtop":
-			entry.webtopRunning = containerRunning
+			entry.webtopHealthy = containerRunning &&
+				strings.Contains(strings.ToLower(statusText), "(healthy)")
 			if len(fields) > 8 {
 				if match := webtopHTTPPortPattern.FindStringSubmatch(fields[8]); len(match) == 2 {
 					if port, parseErr := strconv.Atoi(match[1]); parseErr == nil {
@@ -296,7 +297,7 @@ func (client Client) ListManaged(ctx context.Context) ([]ManagedProject, error) 
 			entry.project.State = Running
 		}
 		entry.project.Healthy = entry.dockerHealthy &&
-			entry.webtopRunning &&
+			entry.webtopHealthy &&
 			entry.loopbackHealthy &&
 			entry.interconnectHealthy
 		projects = append(projects, entry.project)

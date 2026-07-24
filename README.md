@@ -117,6 +117,32 @@ collision is reported as `conflict` without breaking unrelated routes. UDP is
 reported as a warning and is not proxied. The automatic proxy preserves HTTP,
 HTTPS, WebSocket, hot reload, and raw TCP protocols.
 
+## Browser CDP
+
+Every ready box keeps its graphical Chromium open inside Webtop and exposes its
+Chrome DevTools Protocol on a box-specific host loopback port. Closing the
+browser makes the Webtop session supervisor open it again with the same
+persistent profile.
+
+Discover the endpoint from the stable JSON contract:
+
+```bash
+wktbox --json status
+# urls.browserCdp: http://localhost:23005
+# ports.browserCdp: 23005
+```
+
+A port block starting at `23000` uses `23005` for Browser CDP; subsequent boxes
+use `23014`, `23024`, and so on. Point a compatible client at the reported URL:
+
+```bash
+npx -y chrome-devtools-mcp@latest \
+  --browser-url=http://localhost:23005
+```
+
+The port binds only to `127.0.0.1`, but CDP is unauthenticated and grants full
+control of the browser profile. See [Security](docs/security.md).
+
 ## Agent integration
 
 Install the bundled autonomous workflow for Codex and Claude:

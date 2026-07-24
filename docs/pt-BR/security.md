@@ -11,7 +11,8 @@ uma fronteira para executar código hostil.
 - cada box tem um DinD próprio;
 - o socket `/var/run/docker.sock` do host não é montado no Webtop nem no DinD;
 - a API do DinD usa TLS interno em `docker:2376` e não é publicada no host;
-- portas externas próprias do Webtop e gateway são vinculadas a `127.0.0.1`;
+- portas externas próprias do Webtop, CDP e gateway são vinculadas a
+  `127.0.0.1`;
 - rotas automáticas de aplicações são vinculadas somente a `127.0.0.1` e
   `::1` dentro do namespace de rede do Webtop, nunca no host;
 - o sidecar consulta a API DinD com os certificados TLS read-only e usa um
@@ -40,6 +41,12 @@ O Webtop escuta somente em loopback, mas a imagem não configura autenticação
 própria do Wktbox. Qualquer processo ou usuário capaz de acessar o loopback do
 host pode tentar abrir a porta atribuída. O gateway tem a mesma fronteira e
 encaminha hosts configurados sem autenticação.
+
+O endpoint CDP do Chromium gráfico também não possui autenticação. Qualquer
+processo local que alcance sua porta em `127.0.0.1` pode inspecionar e controlar
+páginas, ler ou alterar cookies e armazenamento e agir com as credenciais do
+perfil. Fechar o Chromium não revoga esse acesso, pois o supervisor da sessão o
+abre novamente. Pare a box quando o endpoint precisar ficar indisponível.
 
 `git.mode: mounted` adiciona uma montagem com escrita dos metadados Git comuns
 ao Webtop. Isso permite Git dentro da box, mas amplia o impacto de comandos,
