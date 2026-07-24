@@ -18,19 +18,25 @@ import (
 )
 
 type fakeBackend struct {
-	status       compose.Status
-	managed      []compose.ManagedProject
-	upCalls      []compose.Project
-	startCalls   []compose.Project
-	stopCalls    []compose.Project
-	restartCalls []compose.Project
-	downCalls    []downCall
-	upErr        error
-	err          error
-	loopback     loopback.Status
-	loopbackErr  error
-	statusCalls  []compose.Project
-	syncCalls    []compose.Project
+	status             compose.Status
+	managed            []compose.ManagedProject
+	upCalls            []compose.Project
+	startCalls         []compose.Project
+	stopCalls          []compose.Project
+	restartCalls       []compose.Project
+	downCalls          []downCall
+	upErr              error
+	err                error
+	loopback           loopback.Status
+	loopbackErr        error
+	statusCalls        []compose.Project
+	syncCalls          []compose.Project
+	connectionNetworks []compose.ConnectionNetwork
+	connectionStatuses map[string]compose.ConnectionNetworkStatus
+	connectCalls       []compose.ConnectionEndpoint
+	disconnectCalls    []compose.ConnectionEndpoint
+	removeNetworkCalls []string
+	connectionErr      error
 }
 
 type downCall struct {
@@ -98,38 +104,83 @@ func (backend *fakeBackend) LoopbackSync(
 }
 
 func (backend *fakeBackend) EnsureConnectionNetwork(
-	context.Context,
-	compose.ConnectionNetwork,
+	_ context.Context,
+	network compose.ConnectionNetwork,
 ) error {
-	return backend.err
+	backend.connectionNetworks = append(backend.connectionNetworks, network)
+	if backend.connectionErr != nil {
+		return backend.connectionErr
+	}
+	if backend.connectionStatuses == nil {
+		backend.connectionStatuses = make(map[string]compose.ConnectionNetworkStatus)
+	}
+	status := backend.connectionStatuses[network.DockerName]
+	status.Exists = true
+	status.Managed = true
+	status.ConnectionID = network.ID
+	if status.Endpoints == nil {
+		status.Endpoints = make(map[string]string)
+	}
+	backend.connectionStatuses[network.DockerName] = status
+	return nil
 }
 
 func (backend *fakeBackend) InspectConnectionNetwork(
-	context.Context,
-	string,
+	_ context.Context,
+	name string,
 ) (compose.ConnectionNetworkStatus, error) {
-	return compose.ConnectionNetworkStatus{}, backend.err
+	if backend.connectionErr != nil {
+		return compose.ConnectionNetworkStatus{}, backend.connectionErr
+	}
+	status := backend.connectionStatuses[name]
+	if status.Endpoints == nil {
+		status.Endpoints = make(map[string]string)
+	}
+	return status, nil
 }
 
 func (backend *fakeBackend) ConnectConnectionEndpoint(
-	context.Context,
-	compose.ConnectionEndpoint,
+	_ context.Context,
+	endpoint compose.ConnectionEndpoint,
 ) error {
-	return backend.err
+	backend.connectCalls = append(backend.connectCalls, endpoint)
+	if backend.connectionErr != nil {
+		return backend.connectionErr
+	}
+	status := backend.connectionStatuses[endpoint.Network]
+	if status.Endpoints == nil {
+		status.Endpoints = make(map[string]string)
+	}
+	status.Endpoints[endpoint.BoxID+"/"+endpoint.Service] =
+		endpoint.BoxID + "-" + endpoint.Service
+	backend.connectionStatuses[endpoint.Network] = status
+	return nil
 }
 
 func (backend *fakeBackend) DisconnectConnectionEndpoint(
-	context.Context,
-	compose.ConnectionEndpoint,
+	_ context.Context,
+	endpoint compose.ConnectionEndpoint,
 ) error {
-	return backend.err
+	backend.disconnectCalls = append(backend.disconnectCalls, endpoint)
+	if backend.connectionErr != nil {
+		return backend.connectionErr
+	}
+	status := backend.connectionStatuses[endpoint.Network]
+	delete(status.Endpoints, endpoint.BoxID+"/"+endpoint.Service)
+	backend.connectionStatuses[endpoint.Network] = status
+	return nil
 }
 
 func (backend *fakeBackend) RemoveConnectionNetwork(
-	context.Context,
-	string,
+	_ context.Context,
+	name string,
 ) error {
-	return backend.err
+	backend.removeNetworkCalls = append(backend.removeNetworkCalls, name)
+	if backend.connectionErr != nil {
+		return backend.connectionErr
+	}
+	delete(backend.connectionStatuses, name)
+	return nil
 }
 
 func TestEnsureCreatesStartsAndPersistsReadyBox(t *testing.T) {

@@ -23,14 +23,20 @@ import (
 )
 
 type fakeManager struct {
-	ensuredSpec sandbox.Spec
-	box         state.BoxRecord
-	touched     []string
-	loopback    loopback.Status
-	syncIDs     []string
-	boxes       []state.BoxRecord
-	destroyed   []string
-	destroyErr  map[string]error
+	ensuredSpec        sandbox.Spec
+	box                state.BoxRecord
+	touched            []string
+	loopback           loopback.Status
+	syncIDs            []string
+	boxes              []state.BoxRecord
+	destroyed          []string
+	destroyErr         map[string]error
+	connection         state.ConnectionRecord
+	connections        []state.ConnectionRecord
+	connectSelectors   []string
+	connectName        string
+	connectVersion     string
+	connectionSelector string
 }
 
 func (manager *fakeManager) EnsureAllocated(
@@ -90,6 +96,34 @@ func (manager *fakeManager) SyncLoopback(
 ) (loopback.Status, error) {
 	manager.syncIDs = append(manager.syncIDs, id)
 	return manager.loopback, nil
+}
+
+func (manager *fakeManager) Connect(
+	_ context.Context,
+	selectors []string,
+	name string,
+	version string,
+) (state.ConnectionRecord, error) {
+	manager.connectSelectors = append([]string(nil), selectors...)
+	manager.connectName = name
+	manager.connectVersion = version
+	return manager.connection, nil
+}
+
+func (manager *fakeManager) Connections(
+	_ context.Context,
+	selector string,
+) ([]state.ConnectionRecord, error) {
+	manager.connectionSelector = selector
+	return manager.connections, nil
+}
+
+func (manager *fakeManager) Disconnect(
+	_ context.Context,
+	selector string,
+) (state.ConnectionRecord, error) {
+	manager.connectionSelector = selector
+	return manager.connection, nil
 }
 
 type discoveryRunner struct {
@@ -175,6 +209,48 @@ func TestResolveAndEnsureBuildSandboxSpecFromWorktree(t *testing.T) {
 		manager.ensuredSpec.Version != "test" ||
 		manager.ensuredSpec.Timezone != "America/Sao_Paulo" {
 		t.Fatalf("spec = %#v", manager.ensuredSpec)
+	}
+}
+
+func TestConnectionOperationsPassThroughWithApplicationVersion(t *testing.T) {
+	want := state.ConnectionRecord{
+		ID:      "64f420a77f31",
+		Name:    "dev-stack",
+		Network: "wktbox-connect-64f420a77f31",
+	}
+	manager := &fakeManager{
+		connection:  want,
+		connections: []state.ConnectionRecord{want},
+	}
+	service := app.New(app.Options{
+		Manager: manager,
+		Version: "1.2.3",
+	})
+
+	got, err := service.Connect(
+		context.Background(),
+		[]string{"a4f", "dfe"},
+		"dev-stack",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) ||
+		!reflect.DeepEqual(manager.connectSelectors, []string{"a4f", "dfe"}) ||
+		manager.connectName != "dev-stack" ||
+		manager.connectVersion != "1.2.3" {
+		t.Fatalf("record=%#v manager=%#v", got, manager)
+	}
+
+	listed, err := service.Connections(context.Background(), "dev-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(listed, []state.ConnectionRecord{want}) {
+		t.Fatalf("connections = %#v", listed)
+	}
+	if _, err := service.Disconnect(context.Background(), "dev-stack"); err != nil {
+		t.Fatal(err)
 	}
 }
 

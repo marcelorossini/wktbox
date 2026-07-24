@@ -130,6 +130,16 @@ func (manager Manager) ensure(
 		record.Status = state.Ready
 		record = manager.attachLoopback(ctx, record, realStatus)
 		current.Boxes[record.ID] = record
+		if err := manager.reconcileConnectionsForBox(
+			ctx,
+			&current,
+			record.ID,
+		); err != nil {
+			if saveErr := manager.store.Save(ctx, current); saveErr != nil {
+				return record, errors.Join(err, saveErr)
+			}
+			return record, err
+		}
 		if err := manager.store.Save(ctx, current); err != nil {
 			return state.BoxRecord{}, err
 		}
@@ -167,6 +177,16 @@ func (manager Manager) ensure(
 	record.Status = state.Ready
 	record = manager.attachLoopback(ctx, record, realStatus)
 	current.Boxes[record.ID] = record
+	if err := manager.reconcileConnectionsForBox(
+		ctx,
+		&current,
+		record.ID,
+	); err != nil {
+		if saveErr := manager.store.Save(ctx, current); saveErr != nil {
+			return record, errors.Join(err, saveErr)
+		}
+		return record, err
+	}
 	if err := manager.store.Save(ctx, current); err != nil {
 		return state.BoxRecord{}, err
 	}
@@ -312,6 +332,12 @@ func (manager Manager) Restart(ctx context.Context, id string) error {
 	}
 	record.Status = state.Ready
 	current.Boxes[id] = record
+	if err := manager.reconcileConnectionsForBox(ctx, &current, id); err != nil {
+		if saveErr := manager.store.Save(ctx, current); saveErr != nil {
+			return errors.Join(err, saveErr)
+		}
+		return err
+	}
 	return manager.store.Save(ctx, current)
 }
 
@@ -357,6 +383,9 @@ func (manager Manager) Destroy(ctx context.Context, id string) error {
 	}
 	if err := manager.backend.Down(ctx, projectFor(record), true); err != nil {
 		return manager.persistError(ctx, current, record, err)
+	}
+	if err := manager.removeBoxFromConnections(ctx, &current, id); err != nil {
+		return err
 	}
 	directory, err := manager.store.BoxDir(id)
 	if err != nil {

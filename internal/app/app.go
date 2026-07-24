@@ -58,6 +58,9 @@ type SandboxManager interface {
 	Destroy(context.Context, string) error
 	Touch(context.Context, string) error
 	SyncLoopback(context.Context, string) (loopback.Status, error)
+	Connect(context.Context, []string, string, string) (state.ConnectionRecord, error)
+	Connections(context.Context, string) ([]state.ConnectionRecord, error)
+	Disconnect(context.Context, string) (state.ConnectionRecord, error)
 }
 
 type Options struct {
@@ -292,6 +295,42 @@ func (application *App) List(ctx context.Context) ([]state.BoxRecord, error) {
 		return nil, errors.New("sandbox manager is not configured")
 	}
 	return application.manager.List(ctx)
+}
+
+func (application *App) Connect(
+	ctx context.Context,
+	selectors []string,
+	name string,
+) (state.ConnectionRecord, error) {
+	if application.manager == nil {
+		return state.ConnectionRecord{}, errors.New("sandbox manager is not configured")
+	}
+	return application.manager.Connect(
+		ctx,
+		selectors,
+		name,
+		application.version,
+	)
+}
+
+func (application *App) Connections(
+	ctx context.Context,
+	selector string,
+) ([]state.ConnectionRecord, error) {
+	if application.manager == nil {
+		return nil, errors.New("sandbox manager is not configured")
+	}
+	return application.manager.Connections(ctx, selector)
+}
+
+func (application *App) Disconnect(
+	ctx context.Context,
+	selector string,
+) (state.ConnectionRecord, error) {
+	if application.manager == nil {
+		return state.ConnectionRecord{}, errors.New("sandbox manager is not configured")
+	}
+	return application.manager.Disconnect(ctx, selector)
 }
 
 func (application *App) Prune(
