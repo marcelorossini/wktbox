@@ -207,6 +207,20 @@ inner_ports="$("$wktbox" --path "$worktree_a" exec -- \
 [[ "$inner_ports" == *'"HostPort":"5173"'* ]] ||
   fail_with_diagnostics "scenario 2: 5173 publication missing"
 
+# Scenario 14: a DinD-loopback-only publication is still mirrored into Webtop.
+loopback_ports="$("$wktbox" --path "$worktree_a" exec -- \
+  docker inspect wktbox-fixture-loopback_frontend-1 \
+  --format '{{json .NetworkSettings.Ports}}')"
+[[ "$loopback_ports" == *'"HostIp":"127.0.0.1","HostPort":"5174"'* ]] ||
+  fail_with_diagnostics "scenario 14: loopback-only 5174 publication missing"
+if "$wktbox" --path "$worktree_a" exec -- \
+  curl --fail --silent --connect-timeout 1 http://docker:5174 >/dev/null 2>&1; then
+  fail_with_diagnostics "scenario 14: docker:5174 unexpectedly accepts traffic"
+fi
+wait_for_route "$worktree_a" 5174 listening
+wait_for_http "$worktree_a" "http://localhost:5174" "box-a"
+wait_for_http "$worktree_b" "http://localhost:5174" "box-b"
+
 # Scenario 3: HTTP is automatic on Webtop localhost.
 http_headers="$("$wktbox" --path "$worktree_a" exec -- \
   curl --head --fail --silent --show-error http://localhost:5173/public/index.html)"
@@ -297,7 +311,7 @@ wait_for_http "$worktree_a" "http://localhost:8000" "box-a"
 outer_ports="$(docker ps \
   --filter "label=io.wktbox.box-id=$id_a" \
   --format '{{.Ports}}')"
-for forbidden in 5173 8000 5432 19090; do
+for forbidden in 5173 5174 8000 5432 19090; do
   if [[ "$outer_ports" == *"->$forbidden/tcp"* ]]; then
     fail_with_diagnostics "scenario 12: inner port $forbidden leaked to host"
   fi
@@ -317,4 +331,4 @@ loopback_running="$(docker inspect "wktbox-$id_a-loopback-1" \
 [[ "$loopback_running" == "false" ]] ||
   fail_with_diagnostics "loopback sidecar remained running after stop"
 
-printf 'wktbox automatic loopback E2E passed: all 13 scenarios and Chromium\n'
+printf 'wktbox automatic loopback E2E passed: all 14 scenarios and Chromium\n'

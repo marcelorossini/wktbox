@@ -1,6 +1,7 @@
 package loopback
 
 import (
+	"net/netip"
 	"reflect"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestContainerFromInspectConvertsPublishedPortMap(t *testing.T) {
 					{},
 				},
 				network.MustParsePort("5173/tcp"): {
-					{HostPort: "5173"},
+					{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: "5174"},
 				},
 				network.MustParsePort("5353/udp"): {
 					{HostPort: "5353"},
@@ -40,7 +41,13 @@ func TestContainerFromInspectConvertsPublishedPortMap(t *testing.T) {
 		Running: true,
 		PID:     42,
 		Ports: []PortBinding{
-			{ContainerPort: 5173, HostPort: 5173, Protocol: "tcp", Published: true},
+			{
+				ContainerPort: 5173,
+				HostIP:        "127.0.0.1",
+				HostPort:      5174,
+				Protocol:      "tcp",
+				Published:     true,
+			},
 			{ContainerPort: 5353, HostPort: 5353, Protocol: "udp", Published: true},
 			{ContainerPort: 3000, HostPort: 8000, Protocol: "tcp", Published: true},
 		},

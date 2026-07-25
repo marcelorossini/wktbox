@@ -75,6 +75,18 @@ services:
       - "8000:3000"
 ```
 
+Publicações restritas a uma interface também funcionam sem ampliar o binding
+do projeto:
+
+```yaml
+ports:
+  - "127.0.0.1:5174:5173"
+```
+
+Essa publicação aparece como `http://localhost:5174` dentro do Webtop. O Wktbox
+cria a conexão de upstream no namespace de rede do DinD, onde o listener
+`127.0.0.1:5174` existe, e não publica a porta no host real.
+
 Dentro daquela box, `http://localhost:5173` chega ao frontend e
 `http://localhost:8000` chega à porta 3000 da API. A porta publicada à esquerda
 é preservada; `EXPOSE` sem publicação não cria rota. Duas boxes podem usar o

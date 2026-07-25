@@ -71,6 +71,25 @@ Change the project's published port; Wktbox never falls back to a broader bind
 address. UDP publications are warnings because automatic loopback forwarding is
 TCP-only.
 
+## A loopback route is `listening` but connections fail
+
+`listening` confirms that Wktbox bound both loopback listeners inside Webtop.
+It is not an application-health or end-to-end probe. Inspect the inner
+container's published addresses and service health:
+
+```bash
+wktbox exec -- docker inspect <container> \
+  --format '{{json .NetworkSettings.Ports}}'
+wktbox exec -- docker ps
+```
+
+`HostIp` identifies the interface in the DinD network namespace and `HostPort`
+identifies the port mirrored onto Webtop localhost. A binding such as
+`127.0.0.1:5174:5173` is intentionally unreachable through `docker:5174`;
+Wktbox creates its upstream socket inside the DinD namespace to reach it.
+Confirm that the service itself listens on the container port and that its
+healthcheck is passing.
+
 ## The box is not ready
 
 Inspect:
