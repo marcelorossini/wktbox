@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 460">
+
+<defs>
+  <linearGradient id="edgeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#43D9FF"/>
+    <stop offset="52%" stop-color="#4F7CFF"/>
+    <stop offset="100%" stop-color="#8B5CF6"/>
+  </linearGradient>
+  <linearGradient id="faceGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#18243B"/>
+    <stop offset="100%" stop-color="#0E1525"/>
+  </linearGradient>
+  <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="10" result="blur"/>
+    <feMerge>
+      <feMergeNode in="blur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+</defs>
+
+<g transform="translate(20,-26) scale(0.98)">
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="#0B1020"/>
+  
+<g>
+  <!-- subtle glow -->
+  <path d="M112 170 L256 88 L400 170 L400 338 L256 424 L112 338 Z"
+        fill="none" stroke="url(#edgeGradient)" stroke-width="20"
+        stroke-linejoin="round" opacity="0.18" filter="url(#softGlow)"/>
+
+  <!-- cube faces -->
+  <path d="M112 170 L256 88 L400 170 L256 252 Z"
+        fill="#17243D" stroke="url(#edgeGradient)" stroke-width="14"
+        stroke-linejoin="round"/>
+  <path d="M112 170 L256 252 L256 424 L112 338 Z"
+        fill="#101A2D" stroke="url(#edgeGradient)" stroke-width="14"
+        stroke-linejoin="round"/>
+  <path d="M256 252 L400 170 L400 338 L256 424 Z"
+        fill="url(#faceGradient)" stroke="url(#edgeGradient)" stroke-width="14"
+        stroke-linejoin="round"/>
+
+  <!-- worktree branches on top face -->
+  <path d="M184 169 L256 128 L328 169"
+        fill="none" stroke="#F7FAFF" stroke-width="13"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="184" cy="169" r="13" fill="#43D9FF"/>
+  <circle cx="256" cy="128" r="13" fill="#F7FAFF"/>
+  <circle cx="328" cy="169" r="13" fill="#8B5CF6"/>
+
+  <!-- terminal prompt on front/right face -->
+  <path d="M296 294 L324 310 L296 326"
+        fill="none" stroke="#F7FAFF" stroke-width="13"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M338 330 L372 330"
+        fill="none" stroke="#43D9FF" stroke-width="13"
+        stroke-linecap="round"/>
+
+  <!-- isolated layer mark on left face -->
+  <path d="M148 254 L218 294 M148 290 L218 330"
+        fill="none" stroke="#4F7CFF" stroke-width="12"
+        stroke-linecap="round"/>
+</g>
+
+</g>
+<g transform="translate(580,0)">
+  <text x="0" y="245" font-family="Inter, Arial, Helvetica, sans-serif"
+        font-size="184" font-weight="800" letter-spacing="-8" fill="#111827">WKT</text>
+  <text x="390" y="245" font-family="Inter, Arial, Helvetica, sans-serif"
+        font-size="184" font-weight="800" letter-spacing="-8" fill="#4F7CFF">BOX</text>
+  <text x="4" y="322" font-family="Inter, Arial, Helvetica, sans-serif"
+        font-size="42" font-weight="600" letter-spacing="5" fill="#64748B">
+    ISOLATED DEV ENVIRONMENTS
+  </text>
+</g>
+</svg>

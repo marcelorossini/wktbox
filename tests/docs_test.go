@@ -151,6 +151,46 @@ func TestDocsExplainBrowserCDPDiscoveryAndSecurity(t *testing.T) {
 	}
 }
 
+func TestDocsBrandingPackageIsTrackedAndRenderedWithoutSourceArchive(t *testing.T) {
+	root := projectRoot(t)
+	readme := readProjectFile(t, "README.md")
+	for _, logo := range []string{
+		"docs/assets/branding/wktbox-logo-light.svg",
+		"docs/assets/branding/wktbox-logo-dark.svg",
+	} {
+		if !strings.Contains(readme, logo) {
+			t.Errorf("README missing branding logo %q", logo)
+		}
+	}
+
+	for _, name := range []string{
+		"README.md",
+		"wktbox-icon.svg",
+		"wktbox-icon-monochrome.svg",
+		"wktbox-icon-128.png",
+		"wktbox-icon-512.png",
+		"wktbox-icon-1024.png",
+		"wktbox-logo-compact.svg",
+		"wktbox-logo-compact.png",
+		"wktbox-logo-light.svg",
+		"wktbox-logo-light.png",
+		"wktbox-logo-dark.svg",
+		"wktbox-logo-dark.png",
+	} {
+		path := filepath.Join(root, "docs", "assets", "branding", name)
+		if info, err := os.Stat(path); err != nil {
+			t.Errorf("branding asset %s is missing: %v", name, err)
+		} else if !info.Mode().IsRegular() {
+			t.Errorf("branding asset %s is not a regular file", name)
+		}
+	}
+
+	archive := filepath.Join(root, "WKTBox-logo-package (1).zip")
+	if _, err := os.Stat(archive); !os.IsNotExist(err) {
+		t.Errorf("source branding archive still exists: %v", err)
+	}
+}
+
 func TestDocsUseEnglishAsCanonicalLanguage(t *testing.T) {
 	readme := readProjectFile(t, "README.md")
 	for _, expected := range []string{

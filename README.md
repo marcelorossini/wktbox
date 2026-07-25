@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/branding/wktbox-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/branding/wktbox-logo-light.svg">
+    <img alt="Wktbox — isolated dev environments" src="docs/assets/branding/wktbox-logo-light.svg" width="720">
+  </picture>
+</p>
+
 # Wktbox
 
 Wktbox provides isolated Docker development for any existing directory,
