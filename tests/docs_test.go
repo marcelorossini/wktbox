@@ -200,11 +200,43 @@ func TestDocsChangelogDescribesV030Release(t *testing.T) {
 		"graphical Chromium",
 		"browserCdp",
 		"branding",
-		"[Unreleased]: https://github.com/marcelorossini/wktbox/compare/v0.3.0...HEAD",
 		"[0.3.0]: https://github.com/marcelorossini/wktbox/compare/v0.2.0...v0.3.0",
 	} {
 		if !strings.Contains(changelog, expected) {
 			t.Errorf("CHANGELOG.md missing v0.3.0 release detail %q", expected)
+		}
+	}
+}
+
+func TestDocsExplainDinDLoopbackOnlyPublications(t *testing.T) {
+	required := map[string][]string{
+		"README.md": {
+			"127.0.0.1:5174:5173",
+			"DinD network namespace",
+		},
+		"README.pt-BR.md": {
+			"127.0.0.1:5174:5173",
+			"namespace de rede do DinD",
+		},
+		"docs/troubleshooting.md": {
+			"`listening`",
+			"`HostIp`",
+			"`HostPort`",
+			"end-to-end",
+		},
+		"CHANGELOG.md": {
+			"## [0.3.1] - 2026-07-25",
+			"127.0.0.1:5174:5173",
+			"[Unreleased]: https://github.com/marcelorossini/wktbox/compare/v0.3.1...HEAD",
+			"[0.3.1]: https://github.com/marcelorossini/wktbox/compare/v0.3.0...v0.3.1",
+		},
+	}
+	for path, phrases := range required {
+		body := strings.Join(strings.Fields(readProjectFile(t, path)), " ")
+		for _, phrase := range phrases {
+			if !strings.Contains(body, phrase) {
+				t.Errorf("%s missing %q", path, phrase)
+			}
 		}
 	}
 }

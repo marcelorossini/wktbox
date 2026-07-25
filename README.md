@@ -115,6 +115,18 @@ The project's Compose `ports:` are the source of truth. If a frontend publishes
 such as `8000:3000` preserves the published port on the left and routes
 `localhost:8000` to the service.
 
+Interface-restricted publications work without broadening the project's
+binding. For example:
+
+```yaml
+ports:
+  - "127.0.0.1:5174:5173"
+```
+
+is available as `http://localhost:5174` inside Webtop. Wktbox creates the
+upstream connection in the DinD network namespace, where that
+`127.0.0.1:5174` listener exists, while the real host remains unexposed.
+
 Each Webtop has a separate network namespace, so two boxes can both use
 `localhost:5173`. Container start, stop, die, destroy, and rename events update
 routes automatically. `wktbox run` and `wktbox compose` also synchronize after
