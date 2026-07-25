@@ -17,6 +17,7 @@ const (
 
 type PortBinding struct {
 	ContainerPort uint16
+	HostIP        string
 	HostPort      uint16
 	Protocol      string
 	Published     bool
@@ -32,9 +33,10 @@ type Container struct {
 }
 
 type Publication struct {
-	Port    uint16   `json:"port"`
-	Target  string   `json:"target"`
-	Sources []string `json:"sources"`
+	Port      uint16   `json:"port"`
+	Target    string   `json:"target"`
+	Sources   []string `json:"sources"`
+	Upstreams []string `json:"-"`
 }
 
 type Warning struct {

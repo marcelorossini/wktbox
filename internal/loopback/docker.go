@@ -138,8 +138,13 @@ func containerFromInspect(inspect container.InspectResponse) Container {
 			if err != nil || hostPort == 0 {
 				continue
 			}
+			hostIP := ""
+			if binding.HostIP.IsValid() {
+				hostIP = binding.HostIP.String()
+			}
 			port := PortBinding{
 				ContainerPort: innerPort.Num(),
+				HostIP:        hostIP,
 				HostPort:      uint16(hostPort),
 				Protocol:      string(innerPort.Proto()),
 				Published:     true,

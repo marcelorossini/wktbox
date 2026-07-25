@@ -142,6 +142,67 @@ func TestDiscoverUsesContainerIDWhenNameIsEmpty(t *testing.T) {
 	}
 }
 
+func TestDiscoverPreservesNormalizesSortsAndDeduplicatesPublishedAddresses(
+	t *testing.T,
+) {
+	got := loopback.Discover([]loopback.Container{{
+		Name:    "frontend",
+		Running: true,
+		Ports: []loopback.PortBinding{
+			{
+				HostIP:    "127.0.0.1",
+				HostPort:  5174,
+				Protocol:  "tcp",
+				Published: true,
+			},
+			{
+				HostIP:    "0.0.0.0",
+				HostPort:  5174,
+				Protocol:  "tcp",
+				Published: true,
+			},
+			{
+				HostIP:    "::1",
+				HostPort:  5174,
+				Protocol:  "tcp",
+				Published: true,
+			},
+			{
+				HostIP:    "::",
+				HostPort:  5174,
+				Protocol:  "tcp",
+				Published: true,
+			},
+			{
+				HostIP:    "172.24.0.2",
+				HostPort:  5174,
+				Protocol:  "tcp",
+				Published: true,
+			},
+			{
+				HostIP:    "127.0.0.1",
+				HostPort:  5174,
+				Protocol:  "tcp",
+				Published: true,
+			},
+		},
+	}})
+
+	want := []loopback.Publication{{
+		Port:    5174,
+		Target:  "docker:5174",
+		Sources: []string{"frontend"},
+		Upstreams: []string{
+			"127.0.0.1:5174",
+			"172.24.0.2:5174",
+			"[::1]:5174",
+		},
+	}}
+	if !reflect.DeepEqual(got.Publications, want) {
+		t.Fatalf("publications = %#v; want %#v", got.Publications, want)
+	}
+}
+
 func TestUnavailableReturnsStructuredTransientStatus(t *testing.T) {
 	got := loopback.Unavailable(errors.New("sidecar stopped"))
 

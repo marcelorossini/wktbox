@@ -19,6 +19,26 @@ services:
       timeout: 2s
       retries: 30
 
+  loopback_frontend:
+    image: python:3.14-alpine
+    working_dir: /app
+    command: ["python", "service.py", "http", "5173"]
+    environment:
+      BOX_MARKER: ${WKTBOX_TEST_MARKER:?WKTBOX_TEST_MARKER is required}
+    volumes:
+      - .:/app:ro
+    ports:
+      - "127.0.0.1:5174:5173"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://localhost:5173")
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
   backend:
     image: python:3.14-alpine
     working_dir: /app
