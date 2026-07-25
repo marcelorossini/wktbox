@@ -191,6 +191,24 @@ func TestDocsBrandingPackageIsTrackedAndRenderedWithoutSourceArchive(t *testing.
 	}
 }
 
+func TestDocsChangelogDescribesV030Release(t *testing.T) {
+	changelog := readProjectFile(t, "CHANGELOG.md")
+	for _, expected := range []string{
+		"## [0.3.0] - 2026-07-24",
+		"wktbox port import",
+		"wktbox port publish",
+		"graphical Chromium",
+		"browserCdp",
+		"branding",
+		"[Unreleased]: https://github.com/marcelorossini/wktbox/compare/v0.3.0...HEAD",
+		"[0.3.0]: https://github.com/marcelorossini/wktbox/compare/v0.2.0...v0.3.0",
+	} {
+		if !strings.Contains(changelog, expected) {
+			t.Errorf("CHANGELOG.md missing v0.3.0 release detail %q", expected)
+		}
+	}
+}
+
 func TestDocsUseEnglishAsCanonicalLanguage(t *testing.T) {
 	readme := readProjectFile(t, "README.md")
 	for _, expected := range []string{

@@ -6,6 +6,8 @@ All notable changes to Wktbox are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-24
+
 ### Added
 
 - Added persistent `wktbox port import` mappings that expose real-host TCP
@@ -14,11 +16,18 @@ All notable changes to Wktbox are documented here. The format follows
   selected DinD-published box ports.
 - Added atomic multi-service batches, conflict rejection, removal, lifecycle
   restoration, human/JSON status, and an authenticated per-box host relay.
+- Added an always-running graphical Chromium in every ready Webtop, with
+  automatic reopening, a persistent profile, and discoverable `browserCdp`
+  status fields on a box-specific host loopback port.
+- Added the complete Wktbox branding package and a theme-aware logo to the
+  project README.
 
 ### Security
 
 - Protected host imports with per-box random 256-bit relay tokens and kept the
   host Docker socket and relay credentials out of workload containers.
+- Bound the unauthenticated Chromium CDP endpoint to host loopback and
+  documented that it grants full control over the browser profile.
 
 ## [0.2.0] - 2026-07-24
 
@@ -67,7 +76,8 @@ All notable changes to Wktbox are documented here. The format follows
 - Bound host-facing services to loopback and stored generated state with
   restrictive permissions.
 
-[Unreleased]: https://github.com/marcelorossini/wktbox/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/marcelorossini/wktbox/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/marcelorossini/wktbox/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/marcelorossini/wktbox/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/marcelorossini/wktbox/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/marcelorossini/wktbox/releases/tag/v0.1.0
