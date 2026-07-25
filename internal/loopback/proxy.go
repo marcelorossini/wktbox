@@ -3,6 +3,7 @@ package loopback
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -40,12 +41,23 @@ func (pair *listenerPair) close() {
 func proxyConnection(
 	ctx context.Context,
 	downstream net.Conn,
-	target string,
+	publication Publication,
 	dialContext func(context.Context, string, string) (net.Conn, error),
+	dialNamespaceContext func(
+		context.Context,
+		int,
+		string,
+		string,
+	) (net.Conn, error),
 ) {
 	defer downstream.Close()
 	dialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	upstream, err := dialContext(dialCtx, "tcp", target)
+	upstream, err := dialPublication(
+		dialCtx,
+		publication,
+		dialContext,
+		dialNamespaceContext,
+	)
 	cancel()
 	if err != nil {
 		return
@@ -68,6 +80,34 @@ func proxyConnection(
 	go copyHalf(&copies, downstream, upstream)
 	copies.Wait()
 	close(finished)
+}
+
+func dialPublication(
+	ctx context.Context,
+	publication Publication,
+	dialContext func(context.Context, string, string) (net.Conn, error),
+	dialNamespaceContext func(
+		context.Context,
+		int,
+		string,
+		string,
+	) (net.Conn, error),
+) (net.Conn, error) {
+	if len(publication.Upstreams) == 0 {
+		return dialContext(ctx, "tcp", publication.Target)
+	}
+	var result error
+	for _, upstream := range publication.Upstreams {
+		connection, err := dialNamespaceContext(ctx, 1, "tcp", upstream)
+		if err == nil {
+			return connection, nil
+		}
+		result = errors.Join(
+			result,
+			fmt.Errorf("dial DinD published address %s: %w", upstream, err),
+		)
+	}
+	return nil, result
 }
 
 func copyHalf(group *sync.WaitGroup, destination net.Conn, source net.Conn) {

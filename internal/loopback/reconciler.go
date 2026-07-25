@@ -9,9 +9,15 @@ import (
 )
 
 type ReconcilerOptions struct {
-	Listen      func(network string, address string) (net.Listener, error)
-	DialContext func(context.Context, string, string) (net.Conn, error)
-	Now         func() time.Time
+	Listen               func(network string, address string) (net.Listener, error)
+	DialContext          func(context.Context, string, string) (net.Conn, error)
+	DialNamespaceContext func(
+		context.Context,
+		int,
+		string,
+		string,
+	) (net.Conn, error)
+	Now func() time.Time
 }
 
 type activeRoute struct {
@@ -24,12 +30,22 @@ type Reconciler struct {
 	context     context.Context
 	cancel      context.CancelFunc
 	listen      func(network string, address string) (net.Listener, error)
-	dialContext func(context.Context, string, string) (net.Conn, error)
-	now         func() time.Time
-	active      map[uint16]*activeRoute
-	status      Status
-	group       sync.WaitGroup
-	closed      bool
+	dialContext func(
+		context.Context,
+		string,
+		string,
+	) (net.Conn, error)
+	dialNamespaceContext func(
+		context.Context,
+		int,
+		string,
+		string,
+	) (net.Conn, error)
+	now    func() time.Time
+	active map[uint16]*activeRoute
+	status Status
+	group  sync.WaitGroup
+	closed bool
 }
 
 func NewReconciler(options ReconcilerOptions) *Reconciler {
@@ -42,18 +58,23 @@ func NewReconciler(options ReconcilerOptions) *Reconciler {
 		dialer := &net.Dialer{}
 		dialContext = dialer.DialContext
 	}
+	namespaceDialContext := options.DialNamespaceContext
+	if namespaceDialContext == nil {
+		namespaceDialContext = dialNamespaceContext
+	}
 	now := options.Now
 	if now == nil {
 		now = time.Now
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Reconciler{
-		context:     ctx,
-		cancel:      cancel,
-		listen:      listen,
-		dialContext: dialContext,
-		now:         now,
-		active:      make(map[uint16]*activeRoute),
+		context:              ctx,
+		cancel:               cancel,
+		listen:               listen,
+		dialContext:          dialContext,
+		dialNamespaceContext: namespaceDialContext,
+		now:                  now,
+		active:               make(map[uint16]*activeRoute),
 		status: Status{
 			Routes:   []Route{},
 			Warnings: []Warning{},
@@ -93,8 +114,8 @@ func (reconciler *Reconciler) Apply(_ context.Context, desired Desired) Status {
 			publication: clonePublication(publication),
 			listeners:   pair,
 		}
-		reconciler.serve(pair.ipv4, publication.Target)
-		reconciler.serve(pair.ipv6, publication.Target)
+		reconciler.serve(pair.ipv4, publication.Port)
+		reconciler.serve(pair.ipv6, publication.Port)
 		routes = append(routes, routeFromPublication(publication, RouteListening, ""))
 	}
 	sort.Slice(routes, func(left, right int) bool {
@@ -164,7 +185,7 @@ func (reconciler *Reconciler) Close(ctx context.Context) error {
 	}
 }
 
-func (reconciler *Reconciler) serve(listener net.Listener, target string) {
+func (reconciler *Reconciler) serve(listener net.Listener, port uint16) {
 	reconciler.group.Add(1)
 	go func() {
 		defer reconciler.group.Done()
@@ -176,13 +197,36 @@ func (reconciler *Reconciler) serve(listener net.Listener, target string) {
 				}
 				continue
 			}
+			publication, exists := reconciler.activePublication(port)
+			if !exists {
+				_ = connection.Close()
+				continue
+			}
 			reconciler.group.Add(1)
 			go func() {
 				defer reconciler.group.Done()
-				proxyConnection(reconciler.context, connection, target, reconciler.dialContext)
+				proxyConnection(
+					reconciler.context,
+					connection,
+					publication,
+					reconciler.dialContext,
+					reconciler.dialNamespaceContext,
+				)
 			}()
 		}
 	}()
+}
+
+func (reconciler *Reconciler) activePublication(
+	port uint16,
+) (Publication, bool) {
+	reconciler.mutex.Lock()
+	defer reconciler.mutex.Unlock()
+	route := reconciler.active[port]
+	if route == nil {
+		return Publication{}, false
+	}
+	return clonePublication(route.publication), true
 }
 
 func routeFromPublication(publication Publication, state string, detail string) Route {
@@ -198,6 +242,7 @@ func routeFromPublication(publication Publication, state string, detail string) 
 
 func clonePublication(publication Publication) Publication {
 	publication.Sources = cloneStrings(publication.Sources)
+	publication.Upstreams = cloneStrings(publication.Upstreams)
 	return publication
 }
 

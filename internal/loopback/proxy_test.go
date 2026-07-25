@@ -54,6 +54,86 @@ func TestReconcilerForwardsIPv4AndIPv6ToFreshDockerResolution(t *testing.T) {
 	}
 }
 
+func TestReconcilerUsesDinDNamespaceAndCurrentPublicationMetadata(t *testing.T) {
+	upstream := listenEcho(t)
+	var mutex sync.Mutex
+	var dialed []string
+	listenCalls := 0
+	reconciler := loopback.NewReconciler(loopback.ReconcilerOptions{
+		Listen: func(network string, address string) (net.Listener, error) {
+			mutex.Lock()
+			listenCalls++
+			mutex.Unlock()
+			return net.Listen(network, address)
+		},
+		DialContext: func(
+			context.Context,
+			string,
+			string,
+		) (net.Conn, error) {
+			return nil, fmt.Errorf("ordinary dialer must not be used")
+		},
+		DialNamespaceContext: func(
+			ctx context.Context,
+			pid int,
+			network string,
+			address string,
+		) (net.Conn, error) {
+			if pid != 1 {
+				return nil, fmt.Errorf("namespace PID = %d; want 1", pid)
+			}
+			mutex.Lock()
+			dialed = append(dialed, address)
+			mutex.Unlock()
+			if address == "127.0.0.1:5173" {
+				return nil, fmt.Errorf("first published address is unavailable")
+			}
+			return (&net.Dialer{}).DialContext(
+				ctx,
+				network,
+				upstream.Addr().String(),
+			)
+		},
+	})
+	t.Cleanup(func() {
+		shutdownReconciler(t, reconciler)
+	})
+
+	port := freeDualStackPort(t)
+	reconciler.Apply(context.Background(), loopback.Desired{
+		Publications: []loopback.Publication{{
+			Port:    port,
+			Target:  fmt.Sprintf("docker:%d", port),
+			Sources: []string{"frontend"},
+			Upstreams: []string{
+				"127.0.0.1:5173",
+				"127.0.0.1:5174",
+			},
+		}},
+	})
+	assertEcho(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
+
+	reconciler.Apply(context.Background(), loopback.Desired{
+		Publications: []loopback.Publication{{
+			Port:      port,
+			Target:    fmt.Sprintf("docker:%d", port),
+			Sources:   []string{"frontend"},
+			Upstreams: []string{"127.0.0.1:5175"},
+		}},
+	})
+	assertEcho(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
+
+	mutex.Lock()
+	defer mutex.Unlock()
+	if listenCalls != 2 {
+		t.Fatalf("listen calls = %d; want 2", listenCalls)
+	}
+	wantDialed := "[127.0.0.1:5173 127.0.0.1:5174 127.0.0.1:5175]"
+	if fmt.Sprint(dialed) != wantDialed {
+		t.Fatalf("dialed targets = %v; want %s", dialed, wantDialed)
+	}
+}
+
 func TestReconcilerRemovesBothListeners(t *testing.T) {
 	reconciler := loopback.NewReconciler(loopback.ReconcilerOptions{
 		Listen: net.Listen,
