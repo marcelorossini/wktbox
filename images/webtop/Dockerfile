@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 go build \
       -o /out/wktbox-loopback \
       ./cmd/wktbox-loopback
 
-FROM docker:29.5.0-cli AS docker-cli
+FROM docker:29.6.2-cli AS docker-cli
 
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
