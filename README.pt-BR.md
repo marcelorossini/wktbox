@@ -59,6 +59,17 @@ wktbox open
 pronta. O diretório aparece em `/workspace` tanto no Webtop quanto no DinD; o
 Compose original roda sem reescrita de portas.
 
+## Ambiente de desenvolvimento do Webtop
+
+A imagem do Webtop inclui NVM com Node.js LTS, Python com `pip`, `venv` e
+`pipx`, Visual Studio Code, DBeaver Community, Docker CLI com Compose e Buildx,
+Git, `build-essential`, `jq`, `ripgrep`, `zip` e `unzip`.
+
+Configurações dos editores, dados do DBeaver e versões adicionais do Node.js
+persistem no volume `/config` existente. O NVM armazena suas versões em
+`/config/.nvm`. As ferramentas fornecidas pela imagem são atualizadas ao usar
+uma imagem mais nova do Wktbox, nunca automaticamente durante a inicialização.
+
 ## Localhost automático dentro do Webtop
 
 O `ports:` do Compose interno é a fonte de verdade. Para cada porta TCP

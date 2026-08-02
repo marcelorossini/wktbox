@@ -151,6 +151,38 @@ func TestDocsExplainBrowserCDPDiscoveryAndSecurity(t *testing.T) {
 	}
 }
 
+func TestDocsExplainWebtopDevelopmentEnvironment(t *testing.T) {
+	required := map[string][]string{
+		"README.md": {
+			"Webtop development environment",
+			"NVM",
+			"Node.js LTS",
+			"Python",
+			"Visual Studio Code",
+			"DBeaver Community",
+			"/config/.nvm",
+		},
+		"README.pt-BR.md": {
+			"Ambiente de desenvolvimento do Webtop",
+			"NVM",
+			"Node.js LTS",
+			"Python",
+			"Visual Studio Code",
+			"DBeaver Community",
+			"/config/.nvm",
+		},
+	}
+
+	for path, phrases := range required {
+		body := strings.Join(strings.Fields(readProjectFile(t, path)), " ")
+		for _, phrase := range phrases {
+			if !strings.Contains(body, phrase) {
+				t.Errorf("%s missing %q", path, phrase)
+			}
+		}
+	}
+}
+
 func TestDocsBrandingPackageIsTrackedAndRenderedWithoutSourceArchive(t *testing.T) {
 	root := projectRoot(t)
 	readme := readProjectFile(t, "README.md")

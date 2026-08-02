@@ -86,6 +86,17 @@ box-owned Docker volumes.
 
 Read the complete [current-checkout quickstart](docs/quickstart.md).
 
+## Webtop development environment
+
+The Webtop image includes NVM with Node.js LTS, Python with `pip`, `venv`, and
+`pipx`, Visual Studio Code, DBeaver Community, Docker CLI with Compose and
+Buildx, Git, `build-essential`, `jq`, `ripgrep`, `zip`, and `unzip`.
+
+Editor settings, DBeaver data, and additional Node.js versions persist in the
+existing `/config` volume. NVM stores its versions in `/config/.nvm`. Tools
+provided by the image are updated by pulling a newer Wktbox image, not by an
+automatic startup update.
+
 ## Optional linked worktree
 
 Use a linked worktree when branch isolation is useful, not merely because
