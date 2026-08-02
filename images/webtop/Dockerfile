@@ -21,18 +21,48 @@ FROM docker:29.5.0-cli AS docker-cli
 
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
-ARG VERSION=dev
-ARG REVISION=unknown
-ARG SOURCE_URL=https://github.com/marcelorossini/wktbox
-
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       bash \
+      build-essential \
       ca-certificates \
       curl \
       git \
+      gnupg \
+      jq \
       openssh-client \
+      pipx \
+      python-is-python3 \
+      python3 \
+      python3-pip \
+      python3-venv \
+      ripgrep \
       socat \
+      unzip \
+      zip \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --dearmor --batch --yes -o /etc/apt/keyrings/microsoft.gpg \
+    && chmod a+r /etc/apt/keyrings/microsoft.gpg \
+    && printf '%s\n' \
+      'Types: deb' \
+      'URIs: https://packages.microsoft.com/repos/code' \
+      'Suites: stable' \
+      'Components: main' \
+      'Architectures: amd64 arm64' \
+      'Signed-By: /etc/apt/keyrings/microsoft.gpg' \
+      > /etc/apt/sources.list.d/vscode.sources \
+    && curl -fsSL https://dbeaver.io/debs/dbeaver.gpg.key \
+      | gpg --dearmor --batch --yes -o /etc/apt/keyrings/dbeaver.gpg \
+    && chmod a+r /etc/apt/keyrings/dbeaver.gpg \
+    && printf '%s\n' \
+      'deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/dbeaver.gpg] https://dbeaver.io/debs/dbeaver-ce /' \
+      > /etc/apt/sources.list.d/dbeaver.list \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      code \
+      dbeaver-ce \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
@@ -50,7 +80,16 @@ COPY --chmod=0644 images/webtop/s6-rc.d/user/contents.d/svc-wktbox-cdp-relay /et
 RUN docker --version \
     && docker compose version \
     && docker buildx version \
-    && wktbox-loopback --help
+    && wktbox-loopback --help \
+    && python --version \
+    && python3 --version \
+    && pip --version \
+    && pipx --version \
+    && code --version --no-sandbox --user-data-dir=/tmp/wktbox-code-build-test \
+    && command -v dbeaver \
+    && command -v cc \
+    && command -v jq \
+    && command -v rg
 
 RUN test -x /usr/local/bin/wrapped-chromium \
     && test -x /usr/local/bin/wktbox-chromium-supervisor \
@@ -61,6 +100,10 @@ RUN test -x /usr/local/bin/wrapped-chromium \
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/wktbox-entrypoint"]
+
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG SOURCE_URL=https://github.com/marcelorossini/wktbox
 
 LABEL org.opencontainers.image.title="Wktbox Webtop" \
       org.opencontainers.image.description="Browser desktop and CLI runner for an isolated Wktbox DinD daemon" \

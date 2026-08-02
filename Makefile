@@ -51,6 +51,7 @@ images:
 images-test:
 	bash tests/images/chromium_test.sh
 	bash tests/images/labels_test.sh
+	bash tests/images/development_tools_test.sh
 
 install-test:
 	bash tests/install/unix_test.sh
