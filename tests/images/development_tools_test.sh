@@ -73,7 +73,8 @@ wait_for_nvm() {
   local deadline=$((SECONDS + 30))
 
   while ((SECONDS < deadline)); do
-    if docker exec "$container" test -s /config/.nvm/nvm.sh; then
+    if docker exec "$container" test -s /config/.nvm/nvm.sh &&
+      docker exec "$container" test -s /config/.bashrc; then
       return 0
     fi
     if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != "true" ]]; then
