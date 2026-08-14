@@ -1,4 +1,4 @@
-FROM golang:1.26.5 AS loopback-build
+FROM golang:1.27rc2 AS loopback-build
 
 WORKDIR /src
 
@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 go build \
       -o /out/wktbox-loopback \
       ./cmd/wktbox-loopback
 
-FROM docker:29.5.0-cli AS docker-cli
+FROM docker:29.7.2-cli AS docker-cli
 
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
