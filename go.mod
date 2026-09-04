@@ -3,12 +3,12 @@ module wktbox
 go 1.26.0
 
 require (
-	github.com/gofrs/flock v0.13.0
+	github.com/gofrs/flock v0.13.1
 	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.5.0
+	github.com/moby/moby/client v0.5.1
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
-	golang.org/x/sys v0.37.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
