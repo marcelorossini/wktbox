@@ -165,6 +165,7 @@ real-host loopback. See [Bidirectional port forwarding](port-forwarding.md).
 | `WKTBOX_WEBTOP_IMAGE` | Webtop image |
 | `WKTBOX_GATEWAY_IMAGE` | gateway image |
 | `WKTBOX_STATE_HOME` | state, generated files, and lock root |
+| `WKTBOX_RELAY_BIND` | IPv4 address for the host import relay; `0.0.0.0` opts into every interface |
 
 `--env-file` and `--env-target` override corresponding variables. `--path`
 selects the exact workspace directory; Wktbox does not replace it with a

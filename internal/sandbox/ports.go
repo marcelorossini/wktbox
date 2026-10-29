@@ -373,6 +373,9 @@ func (manager Manager) activatePortMappings(
 		if err := manager.relay.Ensure(ctx, manager.relayOptions(ctx, candidate)); err != nil {
 			return fmt.Errorf("start host import relay: %w", err)
 		}
+		if err := manager.backend.RelayProbe(ctx, projectFor(candidate)); err != nil {
+			return relayUnreachableError(err)
+		}
 	}
 	if publicationsChanged {
 		if err := manager.backend.PortRuntimeApply(
@@ -541,6 +544,12 @@ func (manager Manager) observePortMappings(
 			portforward.Import,
 			fmt.Sprintf("host import relay is unavailable: %v", err),
 		)
+	} else if err := manager.backend.RelayProbe(ctx, project); err != nil {
+		observed = degradePortMappings(
+			observed,
+			portforward.Import,
+			fmt.Sprintf("host import relay is unreachable from the box: %v", err),
+		)
 	}
 	loopbackStatus, err := manager.backend.LoopbackStatus(ctx, project)
 	if err != nil {
@@ -685,14 +694,14 @@ func (manager Manager) relayOptions(
 		options.TokenPath = record.PortRelayTokenPath
 	}
 	port := strconv.Itoa(record.Ports.ImportRelay())
-	host := wildcardRelayHost
+	host := loopbackRelayHost
 	if manager.relayHost != nil {
 		host = manager.relayHost(ctx)
 	}
 	options.ListenAddress = net.JoinHostPort(host, port)
 	probeHost := host
-	if host == wildcardRelayHost {
-		probeHost = "127.0.0.1"
+	if address := net.ParseIP(host); address != nil && address.IsUnspecified() {
+		probeHost = loopbackRelayHost
 	}
 	options.ProbeAddress = net.JoinHostPort(probeHost, port)
 	return options
@@ -724,6 +733,9 @@ func (manager Manager) applyActivePortRuntime(
 		}
 	}
 	if len(portforward.Filter(record.PortMappings, portforward.Import)) != 0 {
+		if err := manager.backend.RelayProbe(ctx, projectFor(record)); err != nil {
+			return relayUnreachableError(err)
+		}
 		if _, err := manager.backend.PortImportApply(
 			ctx,
 			projectFor(record),
@@ -732,6 +744,15 @@ func (manager Manager) applyActivePortRuntime(
 		}
 	}
 	return nil
+}
+
+func relayUnreachableError(cause error) error {
+	return fmt.Errorf(
+		"host import relay is not reachable from the box; check that the host "+
+			"firewall accepts Docker bridge traffic, or set WKTBOX_RELAY_BIND to an "+
+			"address the box can reach: %w",
+		cause,
+	)
 }
 
 type portFileSnapshot struct {

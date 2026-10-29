@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"errors"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -34,35 +33,69 @@ func (runner *relayHostRunner) Run(
 	return process.Result{Stdout: runner.gateways}, nil
 }
 
-func TestNativeRelayHostUsesBridgeGatewayOnLinuxEngine(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("bridge binding applies only to native Linux engines")
-	}
+func noEnvironment(string) string { return "" }
+
+func TestDiscoverRelayHostUsesBridgeGatewayOnLinuxEngine(t *testing.T) {
 	runner := &relayHostRunner{
 		operatingSystem: "Ubuntu 26.04 LTS\n",
 		gateways:        "fd00::1 172.17.0.1 \n",
 	}
-	host := nativeRelayHost(runner)
-	if got := host(context.Background()); got != "172.17.0.1" {
+	got := discoverRelayHost(context.Background(), runner, noEnvironment, "linux")
+	if got != "172.17.0.1" {
 		t.Fatalf("relay host = %q", got)
-	}
-	host(context.Background())
-	if runner.calls != 2 {
-		t.Fatalf("relay host discovery was not cached: %d calls", runner.calls)
 	}
 }
 
-func TestNativeRelayHostFallsBackToWildcard(t *testing.T) {
-	for name, runner := range map[string]*relayHostRunner{
-		"docker desktop": {operatingSystem: "Docker Desktop\n", gateways: "172.17.0.1"},
-		"no gateway":     {operatingSystem: "Fedora", gateways: "\n"},
-		"docker failure": {err: errors.New("daemon unavailable")},
+func TestDiscoverRelayHostNeverDefaultsToEveryInterface(t *testing.T) {
+	for name, test := range map[string]struct {
+		runner *relayHostRunner
+		goos   string
+	}{
+		"docker desktop on linux": {
+			runner: &relayHostRunner{operatingSystem: "Docker Desktop\n", gateways: "172.17.0.1"},
+			goos:   "linux",
+		},
+		"macos":          {runner: &relayHostRunner{}, goos: "darwin"},
+		"windows":        {runner: &relayHostRunner{}, goos: "windows"},
+		"no gateway":     {runner: &relayHostRunner{operatingSystem: "Fedora", gateways: "\n"}, goos: "linux"},
+		"docker failure": {runner: &relayHostRunner{err: errors.New("daemon unavailable")}, goos: "linux"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := nativeRelayHost(runner)(context.Background()); got != wildcardRelayHost {
+			got := discoverRelayHost(context.Background(), test.runner, noEnvironment, test.goos)
+			if got != loopbackRelayHost {
 				t.Fatalf("relay host = %q", got)
 			}
 		})
+	}
+}
+
+func TestDiscoverRelayHostHonorsExplicitBind(t *testing.T) {
+	runner := &relayHostRunner{operatingSystem: "Ubuntu", gateways: "172.17.0.1"}
+	for value, want := range map[string]string{
+		"0.0.0.0":    "0.0.0.0",
+		" 10.0.0.5 ": "10.0.0.5",
+		"not-an-ip":  "172.17.0.1",
+		"fd00::1":    "172.17.0.1",
+	} {
+		getenv := func(name string) string {
+			if name == relayBindVariable {
+				return value
+			}
+			return ""
+		}
+		if got := discoverRelayHost(context.Background(), runner, getenv, "linux"); got != want {
+			t.Fatalf("%s=%q: relay host = %q, want %q", relayBindVariable, value, got, want)
+		}
+	}
+}
+
+func TestNativeRelayHostCachesDiscovery(t *testing.T) {
+	runner := &relayHostRunner{operatingSystem: "Ubuntu", gateways: "172.17.0.1"}
+	host := nativeRelayHost(runner)
+	first := host(context.Background())
+	calls := runner.calls
+	if second := host(context.Background()); second != first || runner.calls != calls {
+		t.Fatalf("relay host discovery was not cached: %q %q, %d calls", first, second, runner.calls)
 	}
 }
 
@@ -77,7 +110,7 @@ func TestRelayOptionsProbeTheBoundAddress(t *testing.T) {
 		options.ProbeAddress != options.ListenAddress {
 		t.Fatalf("bound relay options = %#v", options)
 	}
-	wildcard := Manager{relayHost: func(context.Context) string { return wildcardRelayHost }}
+	wildcard := Manager{relayHost: func(context.Context) string { return "0.0.0.0" }}
 	options = wildcard.relayOptions(context.Background(), record)
 	if !strings.HasPrefix(options.ListenAddress, "0.0.0.0:") ||
 		!strings.HasPrefix(options.ProbeAddress, "127.0.0.1:") {

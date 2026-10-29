@@ -50,8 +50,12 @@ All notable changes to Wktbox are documented here. The format follows
 
 ### Security
 
-- On native Linux engines, the host import relay binds to the default Docker
-  bridge gateway instead of all interfaces.
+- The host import relay no longer listens on every interface: native Linux
+  engines bind it to the default Docker bridge gateway and Docker Desktop to
+  host loopback. Imports verify from the box network that the relay is
+  reachable and roll back with an actionable error otherwise.
+  `WKTBOX_RELAY_BIND` selects another address, with `0.0.0.0` as an explicit
+  opt-in.
 
 ## [0.3.1] - 2026-07-25
 

@@ -172,6 +172,19 @@ until "$wktbox" --path "$workspace" exec -- \
   sleep 1
 done
 
+# A relay bind the box cannot reach is rejected and rolled back instead of
+# silently widening the bind.
+"$wktbox" --path "$workspace" port remove "import-$host_port" >/dev/null
+unreachable_port="$(free_port)"
+if WKTBOX_RELAY_BIND=127.0.0.1 "$wktbox" --path "$workspace" \
+  port import "$unreachable_port" >/dev/null 2>"$test_root/unreachable.err"; then
+  fail "an import through an unreachable relay bind was accepted"
+fi
+grep -q 'not reachable from the box' "$test_root/unreachable.err" ||
+  fail "unreachable relay error was not actionable: $(cat "$test_root/unreachable.err")"
+[[ "$("$wktbox" --path "$workspace" --json port list)" == "[]" ]] ||
+  fail "a rejected import left a mapping behind"
+
 "$wktbox" --path "$workspace" destroy --force >/dev/null
 box_created=false
 

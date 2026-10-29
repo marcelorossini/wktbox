@@ -68,12 +68,16 @@ autenticação à aplicação.
 
 `wktbox port import` usa um relay nativo no host porque o loopback do container
 não alcança diretamente o loopback do host real. O relay rejeita pedidos sem o
-token de 256 bits antes de abrir o serviço de destino. Em um engine Linux
-nativo, o relay escuta somente no gateway da bridge padrão do Docker, endereço
-que `host.docker.internal` resolve dentro do Webtop, e não fica exposto nas
-interfaces externas. No Docker Desktop, ou quando esse gateway não pode ser
-determinado, ele escuta em todas as interfaces e depende do token; o token
-trafega sem criptografia, então mantenha esses hosts em redes confiáveis. O sidecar recebe
+token de 256 bits antes de abrir o serviço de destino. Por padrão ele nunca
+escuta em todas as interfaces. Em um engine Linux nativo, escuta no gateway da
+bridge padrão do Docker, endereço que `host.docker.internal` resolve dentro do
+Webtop. No Docker Desktop, ou quando esse gateway não pode ser determinado,
+escuta no loopback do host, para onde o Docker Desktop encaminha
+`host.docker.internal`. Antes de ativar ou restaurar uma importação, o sidecar
+conecta ao relay pela rede da box com o token; se falhar, a alteração é
+revertida com um erro acionável, sem ampliar o bind. `WKTBOX_RELAY_BIND=<ipv4>`
+escolhe outro endereço, e `WKTBOX_RELAY_BIND=0.0.0.0` é um opt-in explícito
+para todas as interfaces, protegido apenas pelo token sem criptografia. O sidecar recebe
 `SYS_ADMIN` para executar `setns` e `SYS_PTRACE` para acessar os handles de
 namespace dos workloads. Em hosts com AppArmor, ele também usa
 `apparmor=unconfined`, pois o perfil padrão do Docker bloqueia a entrada entre

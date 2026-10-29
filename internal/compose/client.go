@@ -165,6 +165,7 @@ type Backend interface {
 	PortImportPreflight(context.Context, Project, []portforward.Mapping) error
 	PortImportApply(context.Context, Project) (loopback.Status, error)
 	PortRuntimeApply(context.Context, Project) error
+	RelayProbe(context.Context, Project) error
 	EnsureConnectionNetwork(context.Context, ConnectionNetwork) error
 	InspectConnectionNetwork(context.Context, string) (ConnectionNetworkStatus, error)
 	ConnectConnectionEndpoint(context.Context, ConnectionEndpoint) error
@@ -657,6 +658,21 @@ func (client Client) PortImportApply(
 	project Project,
 ) (loopback.Status, error) {
 	return client.loopbackCommand(ctx, project, "imports-apply")
+}
+
+// RelayProbe verifies from the box network that the host import relay is
+// reachable and accepts the box token.
+func (client Client) RelayProbe(ctx context.Context, project Project) error {
+	_, err := client.run(
+		ctx,
+		project,
+		"exec",
+		"-T",
+		"loopback",
+		"wktbox-loopback",
+		"relay-probe",
+	)
+	return err
 }
 
 func (client Client) PortRuntimeApply(

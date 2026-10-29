@@ -164,6 +164,7 @@ Variáveis implementadas:
 | `WKTBOX_WEBTOP_IMAGE` | imagem Webtop |
 | `WKTBOX_GATEWAY_IMAGE` | imagem gateway |
 | `WKTBOX_STATE_HOME` | diretório do cache, locks e arquivos externos |
+| `WKTBOX_RELAY_BIND` | endereço IPv4 do relay de importação; `0.0.0.0` habilita todas as interfaces |
 
 As flags `--env-file` e `--env-target` vencem as variáveis correspondentes.
 `--config` escolhe um arquivo alternativo. `--path` seleciona exatamente o

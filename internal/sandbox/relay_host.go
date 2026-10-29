@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -11,15 +12,20 @@ import (
 	"wktbox/internal/process"
 )
 
-// wildcardRelayHost keeps the relay reachable when the bridge gateway cannot
-// be determined, such as on Docker Desktop where host.docker.internal is
-// forwarded by the VM instead of routed to a local bridge address.
-const wildcardRelayHost = "0.0.0.0"
+// loopbackRelayHost keeps the relay on host loopback. Docker Desktop forwards
+// host.docker.internal connections from its VM to host loopback, so the relay
+// stays unreachable from external interfaces there as well.
+const loopbackRelayHost = "127.0.0.1"
+
+// relayBindVariable overrides the relay address for hosts where neither the
+// bridge gateway nor loopback is reachable from containers. Setting 0.0.0.0
+// is an explicit opt-in to listening on every interface.
+const relayBindVariable = "WKTBOX_RELAY_BIND"
 
 // nativeRelayHost returns the IPv4 address on which the host import relay
 // listens. On a native Linux engine, containers reach host-gateway through the
 // default bridge gateway, so binding there keeps the relay off external
-// interfaces.
+// interfaces. Reachability from the box is verified separately by RelayProbe.
 func nativeRelayHost(runner process.Runner) func(context.Context) string {
 	var mutex sync.Mutex
 	cached := ""
@@ -27,15 +33,25 @@ func nativeRelayHost(runner process.Runner) func(context.Context) string {
 		mutex.Lock()
 		defer mutex.Unlock()
 		if cached == "" {
-			cached = discoverRelayHost(ctx, runner)
+			cached = discoverRelayHost(ctx, runner, os.Getenv, runtime.GOOS)
 		}
 		return cached
 	}
 }
 
-func discoverRelayHost(ctx context.Context, runner process.Runner) string {
-	if runtime.GOOS != "linux" {
-		return wildcardRelayHost
+func discoverRelayHost(
+	ctx context.Context,
+	runner process.Runner,
+	getenv func(string) string,
+	goos string,
+) string {
+	if override := strings.TrimSpace(getenv(relayBindVariable)); override != "" {
+		if address := net.ParseIP(override); address != nil && address.To4() != nil {
+			return address.String()
+		}
+	}
+	if goos != "linux" {
+		return loopbackRelayHost
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -47,7 +63,7 @@ func discoverRelayHost(ctx context.Context, runner process.Runner) string {
 		"{{.OperatingSystem}}",
 	)
 	if err != nil || strings.Contains(info.Stdout, "Docker Desktop") {
-		return wildcardRelayHost
+		return loopbackRelayHost
 	}
 	result, err := runner.Run(
 		ctx,
@@ -59,7 +75,7 @@ func discoverRelayHost(ctx context.Context, runner process.Runner) string {
 		"{{range .IPAM.Config}}{{.Gateway}} {{end}}",
 	)
 	if err != nil {
-		return wildcardRelayHost
+		return loopbackRelayHost
 	}
 	return bridgeGatewayIPv4(result.Stdout)
 }
@@ -71,5 +87,5 @@ func bridgeGatewayIPv4(output string) string {
 			return address.String()
 		}
 	}
-	return wildcardRelayHost
+	return loopbackRelayHost
 }

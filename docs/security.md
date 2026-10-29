@@ -80,11 +80,16 @@ application authentication.
 `wktbox port import` runs a native host relay because container loopback cannot
 reach real-host loopback directly. The relay listens on a reserved box port and
 rejects requests without the per-box 256-bit token before opening a host
-target. On a native Linux engine it binds only to the default Docker bridge
-gateway, the address `host.docker.internal` resolves to inside Webtop, so it is
-not exposed on external interfaces. On Docker Desktop, or when that gateway
-cannot be determined, it binds to all interfaces and relies on the token; the
-token travels unencrypted, so keep such hosts on trusted networks. Imported host services still receive traffic with the relay process's
+target. It never listens on every interface by default. On a native Linux
+engine it binds to the default Docker bridge gateway, the address
+`host.docker.internal` resolves to inside Webtop. On Docker Desktop, or when
+that gateway cannot be determined, it binds to host loopback, where Docker
+Desktop forwards `host.docker.internal`. Before an import is activated or
+restored, the sidecar connects to the relay from the box network with the box
+token; if that fails, the change is rolled back with an actionable error
+instead of falling back to a wider bind. `WKTBOX_RELAY_BIND=<ipv4>` selects
+another address, and `WKTBOX_RELAY_BIND=0.0.0.0` is an explicit opt-in to every
+interface, protected only by the unencrypted token. Imported host services still receive traffic with the relay process's
 host identity and must enforce their own authentication.
 
 The loopback sidecar receives `SYS_ADMIN` for `setns` and `SYS_PTRACE` for

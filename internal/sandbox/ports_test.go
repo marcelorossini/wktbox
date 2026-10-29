@@ -180,6 +180,64 @@ func TestImportActivationRaceRollsBackRelayFilesRuntimeAndState(t *testing.T) {
 	}
 }
 
+func TestImportRejectsRelayUnreachableFromBoxAndRollsBack(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	fixture.backend.relayProbeErr = errors.New("connection refused")
+	beforeState := loadPortFixtureState(t, fixture.store)
+	beforeConfig := readPortFixtureFile(t, fixture.record.PortConfigPath)
+
+	_, err := fixture.manager.ImportPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{testImportMapping("api", 1234, 1234)},
+	)
+	if err == nil ||
+		!strings.Contains(err.Error(), "not reachable from the box") ||
+		!strings.Contains(err.Error(), "WKTBOX_RELAY_BIND") {
+		t.Fatalf("error = %v", err)
+	}
+	if got := loadPortFixtureState(t, fixture.store); !reflect.DeepEqual(got, beforeState) {
+		t.Fatalf("state changed:\n before=%#v\n after=%#v", beforeState, got)
+	}
+	if got := readPortFixtureFile(t, fixture.record.PortConfigPath); string(got) != string(beforeConfig) {
+		t.Fatalf("config changed:\n before=%s\n after=%s", beforeConfig, got)
+	}
+	if len(fixture.relay.stopCalls) != 1 {
+		t.Fatalf("relay was not stopped after the failed probe: %d", len(fixture.relay.stopCalls))
+	}
+}
+
+func TestPortMappingsReportsRelayUnreachableFromBox(t *testing.T) {
+	fixture := newPortManagerFixture(t)
+	if _, err := fixture.manager.ImportPorts(
+		context.Background(),
+		fixture.record.ID,
+		[]portforward.Mapping{testImportMapping("api", 1234, 1234)},
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixture.backend.loopback = loopback.Status{
+		EventStream: loopback.EventStreamConnected,
+		Imports: []loopback.ImportStatus{{
+			Mapping:  "api",
+			Workload: "web",
+			Port:     1234,
+			State:    loopback.ImportListening,
+		}},
+	}
+	fixture.backend.relayProbeErr = errors.New("connection refused")
+
+	observed, err := fixture.manager.PortMappings(context.Background(), fixture.record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observed) != 1 ||
+		observed[0].State != portforward.StateDegraded ||
+		!strings.Contains(observed[0].Error, "unreachable from the box") {
+		t.Fatalf("observed = %#v", observed)
+	}
+}
+
 func TestPortMappingRollbackFailureMarksBoxDegraded(t *testing.T) {
 	fixture := newPortManagerFixture(t)
 	fixture.backend.portApplyErrors = []error{

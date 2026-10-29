@@ -37,6 +37,7 @@ type dependencies struct {
 	publishServe func(context.Context) error
 	dnsServe     func(context.Context) error
 	dnsProbe     func(context.Context) error
+	relayProbe   func(context.Context) error
 }
 
 func main() {
@@ -148,6 +149,19 @@ func execute(
 			deps.dnsProbe = probeDNS
 		}
 		if err := deps.dnsProbe(ctx); err != nil {
+			fmt.Fprintln(stderr, "wktbox-loopback:", err)
+			return 1
+		}
+		return 0
+	case "relay-probe":
+		if len(arguments) != 1 {
+			printUsage(stderr)
+			return 2
+		}
+		if deps.relayProbe == nil {
+			deps.relayProbe = probeRelayFromEnv
+		}
+		if err := deps.relayProbe(ctx); err != nil {
 			fmt.Fprintln(stderr, "wktbox-loopback:", err)
 			return 1
 		}
@@ -340,6 +354,40 @@ func importRuntimeFromEnv() (
 	}, nil
 }
 
+// probeRelayFromEnv checks, from the box network, that the host import relay
+// accepts this box's token. It proves the relay bind is reachable from
+// workloads before imports depend on it.
+func probeRelayFromEnv(ctx context.Context) error {
+	tokenPath := os.Getenv("WKTBOX_RELAY_TOKEN")
+	relayHost := os.Getenv("WKTBOX_RELAY_HOST")
+	relayPort := os.Getenv("WKTBOX_RELAY_PORT")
+	if tokenPath == "" || relayHost == "" || relayPort == "" {
+		return errors.New("WKTBOX_RELAY_TOKEN, WKTBOX_RELAY_HOST, and WKTBOX_RELAY_PORT are required")
+	}
+	var routeReader io.Reader
+	if relayHost == "host-gateway" {
+		if routeFile, err := os.Open("/proc/net/route"); err == nil {
+			defer routeFile.Close()
+			routeReader = routeFile
+		}
+	}
+	relayIPv4, err := resolveRelayIPv4(relayHost, net.LookupHost, routeReader)
+	if err != nil {
+		return err
+	}
+	token, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return fmt.Errorf("read relay token: %w", err)
+	}
+	address := net.JoinHostPort(relayIPv4, relayPort)
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := portforward.ProbeRelay(probeCtx, address, token); err != nil {
+		return fmt.Errorf("host import relay %s is unreachable from the box: %w", address, err)
+	}
+	return nil
+}
+
 func resolveRelayIPv4(
 	host string,
 	lookup func(string) ([]string, error),
@@ -492,6 +540,7 @@ func printUsage(destination io.Writer) {
 	fmt.Fprintln(destination, "       wktbox-loopback imports-apply [--json]")
 	fmt.Fprintln(destination, "       wktbox-loopback dns-serve")
 	fmt.Fprintln(destination, "       wktbox-loopback dns-probe")
+	fmt.Fprintln(destination, "       wktbox-loopback relay-probe")
 	fmt.Fprintln(destination, "       wktbox-loopback sync [--json]")
 	fmt.Fprintln(destination, "       wktbox-loopback status [--json]")
 }
