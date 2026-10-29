@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Docker's default seccomp profile blocks the namespaces used by the Electron
+# sandbox, so VS Code crashes on start. Like wrapped-chromium, disable that
+# inner sandbox only when the container itself runs under seccomp.
+set -euo pipefail
+
+code_args=()
+if ! grep -Eq '^Seccomp:[[:space:]]*0$' /proc/1/status; then
+  code_args+=(--no-sandbox)
+fi
+
+exec /usr/share/code/bin/code "${code_args[@]}" "$@"

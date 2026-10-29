@@ -108,3 +108,28 @@ When branch isolation is explicitly requested and no suitable linked worktree
 exists, create it with normal Git worktree commands, then apply the same doctor
 and run sequence. Never silently substitute direct host execution after
 selecting Wktbox.
+
+## Working inside the box
+
+- `run`, `exec`, and `shell` execute in Webtop as the workspace user, whose
+  UID and GID match the host user, with NVM-managed Node.js, Python, Git, and
+  the Docker CLI on `PATH`. Files they create stay editable on the host.
+- Use `sudo` inside the command, or `wktbox run --root --path <workspace> --`,
+  only for system changes such as installing packages. Root-owned files left
+  in `/workspace` or `/artifacts` by commands or project containers are
+  returned to the host user after each `run`, `exec`, or `compose`.
+- Prefer `wktbox task --path <workspace>` to discover project commands named
+  in `.wktbox.yml`, and run one with `wktbox task --path <workspace> <name>`.
+- Services published by project Compose `ports:` are reachable at the same
+  `localhost` port inside Webtop. Read URLs and ports from
+  `wktbox --json status --path <workspace>` instead of guessing them.
+- Drive the in-box Chromium through the `urls.browserCdp` endpoint from that
+  status, for example with `chrome-devtools-mcp --browser-url=<browserCdp>`.
+  Pages load from the box's network, so use the in-box `localhost` URLs.
+- To reach a service listening on the real host, import it explicitly with
+  `wktbox port import --path <workspace> <port>`; it then answers on
+  `localhost:<port>` in Webtop and in every workload container. A container
+  that connects within its first second may need one retry.
+- Write test reports, screenshots, and other outputs that must not enter the
+  repository to `/artifacts`. Workload containers mount it with
+  `/artifacts:/artifacts`; it persists until the box is destroyed.

@@ -5,3 +5,7 @@ package app
 func hostIDs() (int, int) {
 	return 1000, 1000
 }
+
+func hostTimezone() string {
+	return ""
+}

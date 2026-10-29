@@ -3,15 +3,18 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"wktbox/internal/agentintegration"
 	"wktbox/internal/app"
+	"wktbox/internal/config"
 	"wktbox/internal/discovery"
 	"wktbox/internal/executor"
 	"wktbox/internal/loopback"
@@ -158,6 +161,7 @@ func New(dependencies Dependencies, streams Streams) *cobra.Command {
 		commands.run(),
 		commands.exec(),
 		commands.compose(),
+		commands.task(),
 		commands.shell(),
 		commands.open(),
 		commands.list(),
@@ -694,7 +698,8 @@ func (commands commandSet) child(
 	prefix []string,
 	syncLoopback bool,
 ) *cobra.Command {
-	return &cobra.Command{
+	var root bool
+	command := &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args:  cobra.MinimumNArgs(1),
@@ -717,13 +722,93 @@ func (commands commandSet) child(
 			}
 			child := append([]string{}, prefix...)
 			child = append(child, arguments...)
-			return commands.runChild(command.Context(), box, child, syncLoopback)
+			return commands.runChild(command.Context(), box, child, syncLoopback, root)
 		},
 	}
+	addRootFlag(command, &root)
+	return command
+}
+
+func (commands commandSet) task() *cobra.Command {
+	var root bool
+	command := &cobra.Command{
+		Use:   "task [name] [-- args...]",
+		Short: "List or run a named command from the Wktbox configuration",
+		Long: "Without a name, task lists the commands configured under commands in " +
+			".wktbox.yml. With a name, it runs that command like wktbox run, " +
+			"appending any extra arguments.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(command *cobra.Command, arguments []string) error {
+			resolution, err := commands.resolve(command.Context())
+			if err != nil {
+				return err
+			}
+			tasks := resolution.Spec.Config.Commands
+			if len(arguments) == 0 {
+				return commands.listTasks(tasks)
+			}
+			task, exists := tasks[arguments[0]]
+			if !exists {
+				return fmt.Errorf(
+					"unknown task %q; run wktbox task to list configured commands",
+					arguments[0],
+				)
+			}
+			box, err := commands.service.Ensure(command.Context(), resolution)
+			if err != nil {
+				return err
+			}
+			child := append([]string{}, task.Command...)
+			child = append(child, arguments[1:]...)
+			return commands.runChild(command.Context(), box, child, true, root)
+		},
+	}
+	addRootFlag(command, &root)
+	return command
+}
+
+func (commands commandSet) listTasks(tasks map[string]config.Command) error {
+	names := make([]string, 0, len(tasks))
+	for name := range tasks {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if commands.flags.json {
+		listed := make(map[string][]string, len(tasks))
+		for name, task := range tasks {
+			listed[name] = task.Command
+		}
+		return json.NewEncoder(commands.streams.Out).Encode(map[string]any{"tasks": listed})
+	}
+	if len(names) == 0 {
+		_, err := fmt.Fprintln(commands.streams.Out, "No commands are configured in .wktbox.yml.")
+		return err
+	}
+	for _, name := range names {
+		if _, err := fmt.Fprintf(
+			commands.streams.Out,
+			"%s: %s\n",
+			name,
+			strings.Join(tasks[name].Command, " "),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addRootFlag(command *cobra.Command, root *bool) {
+	command.Flags().BoolVar(
+		root,
+		"root",
+		false,
+		"run as root instead of the workspace user that owns host files",
+	)
 }
 
 func (commands commandSet) shell() *cobra.Command {
-	return &cobra.Command{
+	var root bool
+	command := &cobra.Command{
 		Use:   "shell",
 		Short: "Open an interactive shell in /workspace",
 		Args:  cobra.NoArgs,
@@ -736,12 +821,12 @@ func (commands commandSet) shell() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			code, err := commands.executeChild(command.Context(), box, []string{"bash"})
+			code, err := commands.executeChild(command.Context(), box, []string{"bash"}, root)
 			if err != nil {
 				return err
 			}
 			if code == 127 {
-				code, err = commands.executeChild(command.Context(), box, []string{"sh"})
+				code, err = commands.executeChild(command.Context(), box, []string{"sh"}, root)
 				if err != nil {
 					return err
 				}
@@ -749,6 +834,8 @@ func (commands commandSet) shell() *cobra.Command {
 			return childResult(code)
 		},
 	}
+	addRootFlag(command, &root)
+	return command
 }
 
 func (commands commandSet) open() *cobra.Command {
@@ -970,8 +1057,9 @@ func (commands commandSet) runChild(
 	box state.BoxRecord,
 	child []string,
 	syncLoopback bool,
+	root bool,
 ) error {
-	code, err := commands.executeChild(ctx, box, child)
+	code, err := commands.executeChild(ctx, box, child, root)
 	if err != nil {
 		return err
 	}
@@ -992,10 +1080,12 @@ func (commands commandSet) executeChild(
 	ctx context.Context,
 	box state.BoxRecord,
 	child []string,
+	root bool,
 ) (int, error) {
 	return commands.service.Run(ctx, box, child, executor.Options{
 		HostCWD:     commands.streams.WorkingDir,
 		TTY:         commands.streams.Terminal,
+		Root:        root,
 		Environment: append([]string(nil), commands.flags.environment...),
 		Stdin:       commands.streams.In,
 		Stdout:      commands.streams.Out,

@@ -39,9 +39,10 @@ type Runtime struct {
 }
 
 type Webtop struct {
-	Enabled bool   `yaml:"enabled"`
-	SHMSize string `yaml:"shmSize"`
-	SSH     SSH    `yaml:"ssh"`
+	Enabled    bool   `yaml:"enabled"`
+	SHMSize    string `yaml:"shmSize"`
+	SSH        SSH    `yaml:"ssh"`
+	BrowserCDP bool   `yaml:"browserCdp"`
 }
 
 type SSH struct {
@@ -82,6 +83,10 @@ type Overrides struct {
 	EnvTarget  string
 }
 
+var commandNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+var memoryPattern = regexp.MustCompile(`^(?i)[1-9][0-9]*(?:[kmg]b?)?$`)
+
 var semanticVersionPattern = regexp.MustCompile(
 	`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`,
 )
@@ -108,14 +113,12 @@ func Default(buildVersion string) Config {
 			GatewayImage: gatewayImage,
 		},
 		Webtop: Webtop{
-			Enabled: true,
-			SHMSize: "1gb",
+			Enabled:    true,
+			SHMSize:    "1gb",
+			BrowserCDP: true,
 		},
 		Git: Git{
 			Mode: GitHost,
-		},
-		Resources: Resources{
-			PIDs: 2048,
 		},
 		Gateway: Gateway{
 			Routes: make(map[string]Route),

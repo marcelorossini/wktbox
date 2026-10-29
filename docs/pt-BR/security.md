@@ -46,7 +46,9 @@ O endpoint CDP do Chromium gráfico também não possui autenticação. Qualquer
 processo local que alcance sua porta em `127.0.0.1` pode inspecionar e controlar
 páginas, ler ou alterar cookies e armazenamento e agir com as credenciais do
 perfil. Fechar o Chromium não revoga esse acesso, pois o supervisor da sessão o
-abre novamente. Pare a box quando o endpoint precisar ficar indisponível.
+abre novamente. Use `webtop.browserCdp: false` para não publicar o endpoint no
+host, ou pare a box quando ele precisar ficar indisponível. Nem o Webtop nem a
+porta CDP respondem em interfaces externas.
 
 `git.mode: mounted` adiciona uma montagem com escrita dos metadados Git comuns
 ao Webtop. Isso permite Git dentro da box, mas amplia o impacto de comandos,
@@ -66,11 +68,24 @@ autenticação à aplicação.
 
 `wktbox port import` usa um relay nativo no host porque o loopback do container
 não alcança diretamente o loopback do host real. O relay rejeita pedidos sem o
-token de 256 bits antes de abrir o serviço de destino. O sidecar recebe
+token de 256 bits antes de abrir o serviço de destino. Por padrão ele nunca
+escuta em todas as interfaces. Em um engine Linux nativo, escuta no gateway da
+bridge padrão do Docker, endereço que `host.docker.internal` resolve dentro do
+Webtop. No Docker Desktop, ou quando esse gateway não pode ser determinado,
+escuta no loopback do host, para onde o Docker Desktop encaminha
+`host.docker.internal`. Antes de ativar ou restaurar uma importação, o sidecar
+conecta ao relay pela rede da box com o token; se falhar, a alteração é
+revertida com um erro acionável, sem ampliar o bind. `WKTBOX_RELAY_BIND=<ipv4>`
+escolhe outro endereço, e `WKTBOX_RELAY_BIND=0.0.0.0` é um opt-in explícito
+para todas as interfaces, protegido apenas pelo token sem criptografia. O sidecar recebe
 `SYS_ADMIN` para executar `setns` e `SYS_PTRACE` para acessar os handles de
 namespace dos workloads. Em hosts com AppArmor, ele também usa
 `apparmor=unconfined`, pois o perfil padrão do Docker bloqueia a entrada entre
-containers. Essas permissões ficam restritas ao sidecar confiável, mas ampliam
+containers. As duas foram verificadas como necessárias: sem `SYS_PTRACE`, as
+rotas para publicações ligadas ao loopback do DinD têm a conexão reiniciada, e
+com o perfil AppArmor padrão a abertura de `/proc/<pid>/ns/net` de um workload
+é negada. Restringi-las mais exigiria carregar um perfil AppArmor próprio no
+host. Essas permissões ficam restritas ao sidecar confiável, mas ampliam
 materialmente sua autoridade dentro da box. O host Docker socket continua
 ausente, e o token não é montado nos workloads. Essa é uma ampliação
 operacional para código de desenvolvimento confiável, não uma fronteira contra

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Runs a command with the environment of a Webtop login shell, so commands
+# started by wktbox run, exec, and shell find NVM-managed Node.js.
+export NVM_DIR="${NVM_DIR:-/config/.nvm}"
+
+# Follows the NVM default alias chain, such as default -> lts/* ->
+# lts/lithium -> v26.13.0, without the cost of sourcing nvm.sh.
+resolve_default_node_bin() {
+  local alias=default value
+  for _ in 1 2 3 4 5 6 7 8; do
+    [ -r "$NVM_DIR/alias/$alias" ] || return 1
+    value="$(<"$NVM_DIR/alias/$alias")"
+    if [ -x "$NVM_DIR/versions/node/$value/bin/node" ]; then
+      printf '%s\n' "$NVM_DIR/versions/node/$value/bin"
+      return 0
+    fi
+    alias="$value"
+  done
+  return 1
+}
+
+if node_bin="$(resolve_default_node_bin)"; then
+  export NVM_BIN="$node_bin"
+  export PATH="$node_bin:$PATH"
+elif [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$NVM_DIR/nvm.sh"
+fi
+exec "$@"

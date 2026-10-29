@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"wktbox/internal/compose"
 	"wktbox/internal/state"
 )
 
@@ -26,9 +27,25 @@ type InteractiveRunner interface {
 	Run(context.Context, Invocation) (int, error)
 }
 
+// WorkspaceUser is the Webtop desktop account. The image aligns its UID and
+// GID with the host PUID and PGID, so files it creates in the workspace keep
+// the host user's ownership.
+const WorkspaceUser = "abc"
+
+// launcher loads the Webtop login environment, such as NVM and Node.js, when
+// the image provides it and then replaces itself with the child command, so
+// arguments keep their boundaries without shell reconstruction.
+var launcher = []string{
+	"/bin/sh",
+	"-c",
+	`if [ -x /usr/local/bin/wktbox-exec ]; then exec /usr/local/bin/wktbox-exec "$@"; fi; exec "$@"`,
+	"wktbox-exec",
+}
+
 type Options struct {
 	HostCWD     string
 	TTY         bool
+	Root        bool
 	Environment []string
 	Stdin       io.Reader
 	Stdout      io.Writer
@@ -57,21 +74,17 @@ func (executor Executor) Run(
 		return -1, err
 	}
 
-	arguments := []string{
-		"compose",
-		"-p", box.ProjectName,
-		"--env-file", box.SandboxEnvPath,
-		"-f", box.ComposePath,
-	}
-	if box.ProjectEnvOverridePath != "" {
-		arguments = append(arguments, "-f", box.ProjectEnvOverridePath)
-	}
-	if box.GatewayEnabled {
-		arguments = append(arguments, "--profile", "gateway")
-	}
+	arguments := compose.ProjectFor(box).Arguments()
 	arguments = append(arguments, "exec")
 	if !options.TTY {
 		arguments = append(arguments, "-T")
+	}
+	if options.Root {
+		// Webtop sets HOME=/config, the desktop user's home. Keep root state
+		// such as Docker CLI configuration out of it.
+		arguments = append(arguments, "--env", "HOME=/root")
+	} else {
+		arguments = append(arguments, "--user", WorkspaceUser)
 	}
 	arguments = append(arguments, "-w", containerCWD)
 	for index, value := range options.Environment {
@@ -84,6 +97,7 @@ func (executor Executor) Run(
 		arguments = append(arguments, "--env", value)
 	}
 	arguments = append(arguments, "webtop")
+	arguments = append(arguments, launcher...)
 	arguments = append(arguments, command...)
 
 	invocation := Invocation{

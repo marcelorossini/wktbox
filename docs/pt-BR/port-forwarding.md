@@ -25,7 +25,10 @@ host real 127.0.0.1:1234 -> localhost:1234 de cada workload
 ```
 
 Depois disso, `localhost:1234` e `127.0.0.1:1234` funcionam dentro de todos os
-workloads em execução. Containers iniciados depois recebem a mesma importação.
+workloads em execução e dentro do Webtop, onde rodam `wktbox run`, terminais e
+ferramentas do desktop como o DBeaver. Containers iniciados depois recebem a
+mesma importação logo após iniciar; um processo que conecta no primeiro segundo
+pode precisar de uma nova tentativa.
 
 Para remapear a porta:
 
@@ -60,7 +63,10 @@ Antes de ativar, o Wktbox testa todas as portas em todos os workloads. Se algum
 container já usa uma delas, o lote inteiro falha: nenhum proxy, arquivo ou
 estado parcial é mantido. Se um container futuro iniciar usando uma porta
 reservada, esse container é parado e `wktbox status` registra
-`port_import_conflict`; os demais workloads continuam com a importação.
+`port_import_conflict`; os demais workloads continuam com a importação. O
+Webtop nunca é parado: quando uma rota automática ou um processo do desktop já
+usa a porta nele, a importação continua disponível para os workloads e
+`wktbox status` registra `port_import_desktop_conflict`.
 
 ## Publicar uma porta da box no host
 

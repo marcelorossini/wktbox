@@ -6,6 +6,59 @@ All notable changes to Wktbox are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `wktbox run`, `exec`, and `shell` accept `--root` for commands that need
+  root inside Webtop.
+- Host imports from `wktbox port import` are also served on Webtop
+  `localhost`, so commands, terminals, and desktop tools reach host services.
+- `resources.cpus`, `resources.memory`, and `resources.pids` now limit the DinD
+  service and every workload container of the box.
+- The Webtop clock follows the host time zone when `TZ` is unset.
+- `wktbox task` lists and runs the named `commands` from `.wktbox.yml`.
+- `webtop.browserCdp: false` withholds the Chromium DevTools endpoint from the
+  host.
+
+### Changed
+
+- `wktbox run`, `exec`, and `shell` execute as the Webtop desktop user, whose
+  UID and GID match the host user, with the NVM default Node.js on `PATH`.
+- Root-owned entries created in `/workspace` or `/artifacts` by commands or
+  project containers are returned to the host user after each command.
+- `/artifacts` is writable by the desktop user and documented as box-private
+  output storage shared by Webtop and project containers.
+- Webtop base images are pinned by digest.
+- A new `tests/e2e/agent_workflow.sh` covers the coding-agent workflow.
+- A new `tests/e2e/desktop_relay.sh` emulates Docker Desktop's
+  `host.docker.internal` forwarding to verify the loopback relay path.
+- `lifecycle.idleTimeout` and `lifecycle.removeOnWorktreeDelete` are rejected
+  instead of silently ignored, because automatic cleanup is not implemented.
+- An import relay left by an earlier version, or listening on another address,
+  is replaced on the next `up`, `restart`, or port change.
+
+### Fixed
+
+- Fixed the Webtop image build after Node.js LTS stopped bundling Corepack.
+- Chromium no longer shows a "Restore pages?" prompt after a box restart.
+- Root-owned files left in the Webtop home `/config` by earlier versions,
+  such as Docker CLI state, are returned to the desktop user on start, and
+  `--root` commands use `HOME=/root` so they no longer write there.
+- Visual Studio Code opens from the Webtop menu and the `code` command; its
+  Electron sandbox crashed under Docker's default seccomp profile.
+- Commands run through `wktbox run` found no `node` because NVM was only loaded
+  by login shells.
+- Compose invocations for `run`, `exec`, `logs`, and lifecycle commands now
+  share one argument builder, so port publication overrides are always applied.
+
+### Security
+
+- The host import relay no longer listens on every interface: native Linux
+  engines bind it to the default Docker bridge gateway and Docker Desktop to
+  host loopback. Imports verify from the box network that the relay is
+  reachable and roll back with an actionable error otherwise.
+  `WKTBOX_RELAY_BIND` selects another address, with `0.0.0.0` as an explicit
+  opt-in.
+
 ## [0.3.1] - 2026-07-25
 
 ### Fixed

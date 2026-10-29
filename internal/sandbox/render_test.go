@@ -35,6 +35,9 @@ type composeService struct {
 	ExtraHosts  []string          `yaml:"extra_hosts"`
 	Profiles    []string          `yaml:"profiles"`
 	Ports       []string          `yaml:"ports"`
+	CPUs        string            `yaml:"cpus"`
+	MemLimit    string            `yaml:"mem_limit"`
+	PidsLimit   int               `yaml:"pids_limit"`
 }
 
 func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
@@ -139,6 +142,12 @@ func TestRenderWritesPortConfigOverrideAndRuntimeServices(t *testing.T) {
 		) ||
 		len(loopbackService.ExtraHosts) != 0 {
 		t.Fatalf("loopback namespace access = %#v", loopbackService)
+	}
+	if !reflect.DeepEqual(
+		document.Services["webtop"].ExtraHosts,
+		[]string{"host.docker.internal:host-gateway"},
+	) {
+		t.Fatalf("webtop extra hosts = %#v", document.Services["webtop"].ExtraHosts)
 	}
 	if strings.Contains(readFile(t, files.ComposePath), "/var/run/docker.sock") {
 		t.Fatal("host Docker socket leaked into port runtime")
@@ -354,6 +363,27 @@ func TestRenderWithoutProjectEnvRemovesStaleOverride(t *testing.T) {
 	}
 }
 
+func TestRenderAppliesResourceLimitsToDind(t *testing.T) {
+	spec := testSpec()
+	spec.Config.Resources = config.Resources{CPUs: 2.5, Memory: "4g", PIDs: 4096}
+
+	files, err := sandbox.Render(t.TempDir(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files.ProjectEnvOverridePath == "" {
+		t.Fatalf("resource limits did not produce a runtime override: %#v", files)
+	}
+	document := readCompose(t, files.ProjectEnvOverridePath)
+	docker := document.Services["docker"]
+	if docker.CPUs != "2.5" || docker.MemLimit != "4g" || docker.PidsLimit != 4096 {
+		t.Fatalf("docker limits = %#v", docker)
+	}
+	if _, exists := document.Services["webtop"]; exists {
+		t.Fatalf("limits leaked into webtop: %#v", document.Services["webtop"])
+	}
+}
+
 func TestRenderMountedGitBridgeOnlyOnWebtop(t *testing.T) {
 	spec := testSpec()
 	spec.GitBridge = gitbridge.Bridge{
@@ -534,4 +564,27 @@ func assertBind(
 		}
 	}
 	t.Fatalf("bind %q -> %q not found in %#v", source, target, volumes)
+}
+
+func TestRenderCanWithholdBrowserCDPFromHost(t *testing.T) {
+	spec := testSpec()
+	spec.Config.Webtop.BrowserCDP = false
+
+	files, err := sandbox.Render(t.TempDir(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readFile(t, files.ProjectEnvOverridePath)
+	for _, required := range []string{
+		"ports: !override",
+		"127.0.0.1:${PORT_HTTP}:61000",
+		"127.0.0.1:${PORT_HTTPS}:61001",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("override missing %q:\n%s", required, body)
+		}
+	}
+	if strings.Contains(body, "PORT_BROWSER_CDP") {
+		t.Fatalf("override still publishes Browser CDP:\n%s", body)
+	}
 }

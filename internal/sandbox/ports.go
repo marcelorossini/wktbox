@@ -370,8 +370,11 @@ func (manager Manager) activatePortMappings(
 		portforward.Import,
 	)
 	if len(candidateImports) != 0 {
-		if err := manager.relay.Ensure(ctx, relayOptions(candidate)); err != nil {
+		if err := manager.relay.Ensure(ctx, manager.relayOptions(ctx, candidate)); err != nil {
 			return fmt.Errorf("start host import relay: %w", err)
+		}
+		if err := manager.backend.RelayProbe(ctx, projectFor(candidate)); err != nil {
+			return relayUnreachableError(err)
 		}
 	}
 	if publicationsChanged {
@@ -392,7 +395,7 @@ func (manager Manager) activatePortMappings(
 	}
 	if len(candidateImports) == 0 &&
 		len(portforward.Filter(previous.PortMappings, portforward.Import)) != 0 {
-		if err := manager.relay.Stop(ctx, relayOptions(candidate)); err != nil {
+		if err := manager.relay.Stop(ctx, manager.relayOptions(ctx, candidate)); err != nil {
 			return fmt.Errorf("stop host import relay: %w", err)
 		}
 	}
@@ -418,7 +421,7 @@ func (manager Manager) rollbackPortMappings(
 	if len(previousImports) != 0 {
 		result = errors.Join(
 			result,
-			manager.relay.Ensure(ctx, relayOptions(previous)),
+			manager.relay.Ensure(ctx, manager.relayOptions(ctx, previous)),
 		)
 	}
 	if publicationsChanged {
@@ -434,7 +437,7 @@ func (manager Manager) rollbackPortMappings(
 	if len(previousImports) == 0 {
 		result = errors.Join(
 			result,
-			manager.relay.Stop(ctx, relayOptions(previous)),
+			manager.relay.Stop(ctx, manager.relayOptions(ctx, previous)),
 		)
 	}
 	if result != nil {
@@ -535,11 +538,17 @@ func (manager Manager) observePortMappings(
 	if len(imports) == 0 {
 		return observed
 	}
-	if err := manager.relay.Probe(ctx, relayOptions(record)); err != nil {
+	if err := manager.relay.Probe(ctx, manager.relayOptions(ctx, record)); err != nil {
 		observed = degradePortMappings(
 			observed,
 			portforward.Import,
 			fmt.Sprintf("host import relay is unavailable: %v", err),
+		)
+	} else if err := manager.backend.RelayProbe(ctx, project); err != nil {
+		observed = degradePortMappings(
+			observed,
+			portforward.Import,
+			fmt.Sprintf("host import relay is unreachable from the box: %v", err),
 		)
 	}
 	loopbackStatus, err := manager.backend.LoopbackStatus(ctx, project)
@@ -676,14 +685,25 @@ func publicationListener(mapping portforward.Mapping) string {
 	)
 }
 
-func relayOptions(record state.BoxRecord) portforward.RelayProcessOptions {
+func (manager Manager) relayOptions(
+	ctx context.Context,
+	record state.BoxRecord,
+) portforward.RelayProcessOptions {
 	options := portforward.RelayProcessPaths(record.PortConfigPath)
 	if record.PortRelayTokenPath != "" {
 		options.TokenPath = record.PortRelayTokenPath
 	}
 	port := strconv.Itoa(record.Ports.ImportRelay())
-	options.ListenAddress = net.JoinHostPort("0.0.0.0", port)
-	options.ProbeAddress = net.JoinHostPort("127.0.0.1", port)
+	host := loopbackRelayHost
+	if manager.relayHost != nil {
+		host = manager.relayHost(ctx)
+	}
+	options.ListenAddress = net.JoinHostPort(host, port)
+	probeHost := host
+	if address := net.ParseIP(host); address != nil && address.IsUnspecified() {
+		probeHost = loopbackRelayHost
+	}
+	options.ProbeAddress = net.JoinHostPort(probeHost, port)
 	return options
 }
 
@@ -694,7 +714,7 @@ func (manager Manager) startImportRelay(
 	if len(portforward.Filter(record.PortMappings, portforward.Import)) == 0 {
 		return nil
 	}
-	if err := manager.relay.Ensure(ctx, relayOptions(record)); err != nil {
+	if err := manager.relay.Ensure(ctx, manager.relayOptions(ctx, record)); err != nil {
 		return fmt.Errorf("start host import relay: %w", err)
 	}
 	return nil
@@ -713,6 +733,9 @@ func (manager Manager) applyActivePortRuntime(
 		}
 	}
 	if len(portforward.Filter(record.PortMappings, portforward.Import)) != 0 {
+		if err := manager.backend.RelayProbe(ctx, projectFor(record)); err != nil {
+			return relayUnreachableError(err)
+		}
 		if _, err := manager.backend.PortImportApply(
 			ctx,
 			projectFor(record),
@@ -721,6 +744,15 @@ func (manager Manager) applyActivePortRuntime(
 		}
 	}
 	return nil
+}
+
+func relayUnreachableError(cause error) error {
+	return fmt.Errorf(
+		"host import relay is not reachable from the box; check that the host "+
+			"firewall accepts Docker bridge traffic, or set WKTBOX_RELAY_BIND to an "+
+			"address the box can reach: %w",
+		cause,
+	)
 }
 
 type portFileSnapshot struct {

@@ -127,6 +127,9 @@ func New(options Options) *App {
 		timezone = os.Getenv("TZ")
 	}
 	if timezone == "" {
+		timezone = hostTimezone()
+	}
+	if timezone == "" {
 		timezone = "UTC"
 	}
 	openURL := options.OpenURL
@@ -450,6 +453,7 @@ func (application *App) Run(
 	options executor.Options,
 ) (int, error) {
 	code, runErr := application.executor.Run(ctx, box, command, options)
+	application.repairOwnership(ctx, box)
 	touchErr := application.touch(ctx, box.ID)
 	if runErr != nil && touchErr != nil {
 		return code, errors.Join(runErr, touchErr)
@@ -591,26 +595,31 @@ func (application *App) touch(ctx context.Context, id string) error {
 	return application.manager.Touch(ctx, id)
 }
 
+// repairOwnership returns workspace and /artifacts entries created by root,
+// typically by project containers in DinD or by an explicit --root command,
+// to the host user. Root-owned files would otherwise be read-only for the host user,
+// coding agents on the host, and the Webtop desktop account. Entries owned by
+// other service accounts are left untouched because their services may rely
+// on them. Failures are ignored: the repair is a convenience and never changes
+// the child result.
+func (application *App) repairOwnership(ctx context.Context, box state.BoxRecord) {
+	if runtime.GOOS != "linux" || application.puid <= 0 || application.pgid < 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	owner := fmt.Sprintf("%d:%d", application.puid, application.pgid)
+	arguments := append(
+		composeArguments(box),
+		"exec", "-T", "docker",
+		"find", "/workspace", "/artifacts", "-xdev", "-user", "0",
+		"-exec", "chown", "-h", owner, "{}", "+",
+	)
+	_, _ = application.processRunner.Run(ctx, "docker", arguments...)
+}
+
 func composeArguments(box state.BoxRecord) []string {
-	arguments := []string{
-		"compose",
-		"-p", box.ProjectName,
-		"--env-file", box.SandboxEnvPath,
-		"-f", box.ComposePath,
-	}
-	if box.ProjectEnvOverridePath != "" {
-		arguments = append(arguments, "-f", box.ProjectEnvOverridePath)
-	}
-	if box.PortOverridePath != "" {
-		arguments = append(arguments, "-f", box.PortOverridePath)
-	}
-	if box.GatewayEnabled {
-		arguments = append(arguments, "--profile", "gateway")
-	}
-	if len(portforward.Filter(box.PortMappings, portforward.Publish)) != 0 {
-		arguments = append(arguments, "--profile", "ports")
-	}
-	return arguments
+	return compose.ProjectFor(box).Arguments()
 }
 
 func StateRoot() (string, error) {

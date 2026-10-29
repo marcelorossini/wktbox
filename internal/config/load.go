@@ -103,6 +103,34 @@ func validate(cfg Config) error {
 	if cfg.Git.Mode != GitHost && cfg.Git.Mode != GitMounted {
 		return fmt.Errorf("unsupported git mode %q", cfg.Git.Mode)
 	}
+	if cfg.Resources.CPUs < 0 {
+		return fmt.Errorf("resources.cpus must not be negative")
+	}
+	if cfg.Resources.PIDs < 0 {
+		return fmt.Errorf("resources.pids must not be negative")
+	}
+	if cfg.Resources.Memory != "" && !memoryPattern.MatchString(cfg.Resources.Memory) {
+		return fmt.Errorf(
+			"resources.memory %q must be a size such as 512m or 8gb",
+			cfg.Resources.Memory,
+		)
+	}
+	for name, command := range cfg.Commands {
+		if !commandNamePattern.MatchString(name) {
+			return fmt.Errorf("command name %q must be lowercase letters, digits, '-', '_', or '.'", name)
+		}
+		if len(command.Command) == 0 || command.Command[0] == "" {
+			return fmt.Errorf("command %q requires a non-empty command list", name)
+		}
+	}
+	if cfg.Lifecycle.IdleTimeout != 0 {
+		return fmt.Errorf("lifecycle.idleTimeout is not supported; stop idle boxes with wktbox stop")
+	}
+	if cfg.Lifecycle.RemoveOnWorktreeDelete {
+		return fmt.Errorf(
+			"lifecycle.removeOnWorktreeDelete is not supported; remove boxes of deleted workspaces with wktbox prune --force",
+		)
+	}
 	for name, route := range cfg.Gateway.Routes {
 		if route.Port < 1 || route.Port > 65535 {
 			return fmt.Errorf("gateway route %q has invalid port %d", name, route.Port)

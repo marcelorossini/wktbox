@@ -51,6 +51,7 @@ images:
 images-test:
 	bash tests/images/chromium_test.sh
 	bash tests/images/labels_test.sh
+	bash tests/images/development_tools_test.sh
 
 install-test:
 	bash tests/install/unix_test.sh
@@ -60,6 +61,8 @@ e2e:
 	bash tests/e2e/automatic_loopback.sh
 	bash tests/e2e/two_worktrees.sh
 	bash tests/e2e/cross_box_connections.sh
+	bash tests/e2e/agent_workflow.sh
+	bash tests/e2e/desktop_relay.sh
 
 e2e-plain-directory:
 	bash tests/e2e/plain_directory.sh

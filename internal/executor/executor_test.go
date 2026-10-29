@@ -85,10 +85,14 @@ func TestRunForwardsArgumentsWithoutShellReconstruction(t *testing.T) {
 		"--profile", "gateway",
 		"exec",
 		"-T",
+		"--user", "abc",
 		"-w", "/workspace/frontend",
 		"--env", "CI=true",
 		"--env", "DEBUG=e2e",
 		"webtop",
+		"/bin/sh", "-c",
+		`if [ -x /usr/local/bin/wktbox-exec ]; then exec /usr/local/bin/wktbox-exec "$@"; fi; exec "$@"`,
+		"wktbox-exec",
 		"printf", "%s", "a b", "$(must-not-expand)",
 	}
 	got := runner.invocations[0]
@@ -97,6 +101,28 @@ func TestRunForwardsArgumentsWithoutShellReconstruction(t *testing.T) {
 	}
 	if got.Stdin != &stdin || got.Stdout != &stdout || got.Stderr != &stderr {
 		t.Fatal("standard streams were not forwarded")
+	}
+}
+
+func TestRunAsRootOmitsWorkspaceUser(t *testing.T) {
+	runner := &recordingInteractiveRunner{}
+	_, err := executor.New(runner).Run(
+		context.Background(),
+		testBox(),
+		[]string{"apt-get", "update"},
+		executor.Options{HostCWD: "/repo/feature", Root: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments := runner.invocations[0].Arguments
+	for _, argument := range arguments {
+		if argument == "--user" {
+			t.Fatalf("root execution selected a user: %#v", arguments)
+		}
+	}
+	if !strings.Contains(strings.Join(arguments, " "), "--env HOME=/root") {
+		t.Fatalf("root execution kept the desktop home: %#v", arguments)
 	}
 }
 

@@ -59,6 +59,32 @@ wktbox open
 pronta. O diretório aparece em `/workspace` tanto no Webtop quanto no DinD; o
 Compose original roda sem reescrita de portas.
 
+## Ambiente de desenvolvimento do Webtop
+
+A imagem do Webtop inclui NVM com Node.js LTS, Python com `pip`, `venv` e
+`pipx`, Visual Studio Code, DBeaver Community, Docker CLI com Compose e Buildx,
+Git, `build-essential`, `jq`, `ripgrep`, `zip` e `unzip`.
+
+Configurações dos editores, dados do DBeaver e versões adicionais do Node.js
+persistem no volume `/config` existente. O NVM armazena suas versões em
+`/config/.nvm`. As ferramentas fornecidas pela imagem são atualizadas ao usar
+uma imagem mais nova do Wktbox, nunca automaticamente durante a inicialização.
+
+`wktbox run`, `exec` e `shell` executam como o usuário do desktop do Webtop,
+cujos UID e GID são os do usuário do host, com o Node.js padrão do NVM no
+`PATH`. Os arquivos criados continuam editáveis no host e nos editores do
+desktop. O usuário tem `sudo` sem senha; use `--root` para executar o comando
+inteiro como root. Containers do projeto no DinD costumam rodar como root, por
+isso, após cada `run`, `exec` e `compose`, o Wktbox devolve ao usuário do host
+as entradas de `/workspace` e `/artifacts` que pertencem a root. Entradas de
+outras contas de serviço não são alteradas.
+
+`/artifacts` é um armazenamento privado da box, compartilhado entre Webtop e
+DinD e fora do checkout. Containers do projeto o montam com
+`/artifacts:/artifacts` para entregar relatórios, screenshots e outros
+resultados ao Webtop e aos agentes sem tocar no repositório. Ele persiste até a
+box ser destruída.
+
 ## Localhost automático dentro do Webtop
 
 O `ports:` do Compose interno é a fonte de verdade. Para cada porta TCP
@@ -200,9 +226,11 @@ workload existente, o lote inteiro falha sem alteração parcial. Consulte
 ## Comandos
 
 - `wktbox up`: cria, inicia ou reconcilia a infraestrutura externa.
-- `wktbox run -- <comando>`: garante a box pronta e executa o comando.
+- `wktbox run -- <comando>`: garante a box pronta e executa o comando como
+  usuário do workspace; `--root` executa como root.
 - `wktbox exec -- <comando>`: executa somente em uma box já pronta.
 - `wktbox compose -- <argumentos>`: atalho para `docker compose` interno.
+- `wktbox task [nome]`: lista ou executa comandos nomeados do `.wktbox.yml`.
 - `wktbox shell`: abre Bash, com fallback para `sh`, em `/workspace`.
 - `wktbox open`: abre a URL HTTP conhecida do Webtop.
 - `wktbox list`: lista boxes e reconcilia o cache com os labels Docker.

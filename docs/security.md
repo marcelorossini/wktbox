@@ -39,6 +39,11 @@ their dedicated daemon and everything mounted into it. Webtop and DinD can read
 and modify the checkout. They can read a mounted project environment file even
 when that file is read-only.
 
+Commands run as the Webtop desktop user, which has passwordless `sudo` inside
+Webtop, so dropping root for `wktbox run` protects host file ownership, not the
+box. Wktbox also returns root-owned workspace entries to the host user after
+each command; it never changes entries owned by other accounts.
+
 A compromised or malicious project may alter source, generated files, Git data
 that is deliberately mounted, and credentials exposed to project processes.
 Use a dedicated virtual machine or another hardened backend when code,
@@ -59,8 +64,9 @@ The graphical Chromium CDP endpoint is also unauthenticated. Any local process
 that can reach its `127.0.0.1` port can inspect and control pages, read or
 modify cookies and browser storage, and act with the browser profile's
 credentials. Closing Chromium is not a way to revoke access because the Webtop
-session supervisor opens it again. Stop the box when the endpoint must be
-unavailable.
+session supervisor opens it again. Set `webtop.browserCdp: false` to keep the
+endpoint off the host, or stop the box when it must be unavailable. Neither the
+Webtop nor the CDP port answers on external interfaces.
 
 Internal TLS protects the DinD API from accidental access outside the box
 containers. It does not transform a privileged container into a VM.
@@ -72,16 +78,29 @@ local process that can reach its `127.0.0.1` or `::1` listener. Wktbox adds no
 application authentication.
 
 `wktbox port import` runs a native host relay because container loopback cannot
-reach real-host loopback directly. The relay listens on a reserved box port but
+reach real-host loopback directly. The relay listens on a reserved box port and
 rejects requests without the per-box 256-bit token before opening a host
-target. Imported host services still receive traffic with the relay process's
+target. It never listens on every interface by default. On a native Linux
+engine it binds to the default Docker bridge gateway, the address
+`host.docker.internal` resolves to inside Webtop. On Docker Desktop, or when
+that gateway cannot be determined, it binds to host loopback, where Docker
+Desktop forwards `host.docker.internal`. Before an import is activated or
+restored, the sidecar connects to the relay from the box network with the box
+token; if that fails, the change is rolled back with an actionable error
+instead of falling back to a wider bind. `WKTBOX_RELAY_BIND=<ipv4>` selects
+another address, and `WKTBOX_RELAY_BIND=0.0.0.0` is an explicit opt-in to every
+interface, protected only by the unencrypted token. Imported host services still receive traffic with the relay process's
 host identity and must enforce their own authentication.
 
 The loopback sidecar receives `SYS_ADMIN` for `setns` and `SYS_PTRACE` for
 accessing workload namespace handles. On AppArmor hosts it also runs with
 `apparmor=unconfined`, because Docker's default profile blocks cross-container
-namespace entry. These permissions are limited to the trusted loopback
-sidecar, but materially expand its authority inside the box. It does not mount
+namespace entry. Both were verified as required: without
+`SYS_PTRACE`, routes to publications bound to the DinD loopback reset their
+connections, and under the default AppArmor profile opening a workload's
+`/proc/<pid>/ns/net` is denied. Narrowing them further would require loading a
+custom AppArmor profile on the host. These permissions are limited to the
+trusted loopback sidecar, but materially expand its authority inside the box. It does not mount
 the host Docker socket, and tokens are not mounted into workload containers.
 Treat workloads as trusted development code, not hostile tenants.
 
@@ -113,8 +132,8 @@ Prefer one external project environment file per checkout and pass it with
 generated credentials. Avoid secrets in file names, command arguments, and
 application output.
 
-Resource fields in schema v1 are not enforced and must not be treated as
-availability or security limits.
+Resource fields bound the DinD service and its workloads. They protect host
+availability from runaway builds but are not a security boundary.
 
 See [Configuration](configuration.md) and
 [Troubleshooting](troubleshooting.md).

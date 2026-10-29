@@ -7,10 +7,20 @@ profile="${WKTBOX_CHROMIUM_PROFILE:-/config/.config/wktbox-chromium}"
 mkdir -p "$profile"
 if ! pgrep -x chromium >/dev/null 2>&1; then
   rm -f "$profile"/Singleton*
+  # Stopping the box kills Chromium; mark the profile clean so it does not
+  # greet the user or a CDP client with a "Restore pages?" prompt.
+  preferences="$profile/Default/Preferences"
+  if [[ -f "$preferences" ]]; then
+    sed -i \
+      -e 's/"exit_type":"Crashed"/"exit_type":"Normal"/' \
+      -e 's/"exited_cleanly":false/"exited_cleanly":true/' \
+      "$preferences" || true
+  fi
 fi
 
 browser_args=(
   --password-store=basic
+  --hide-crash-restore-bubble
   --remote-debugging-port=9222
   "--user-data-dir=$profile"
 )

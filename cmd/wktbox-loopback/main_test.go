@@ -266,3 +266,19 @@ func TestImportPreflightDecodesAndDelegatesCandidateBatch(t *testing.T) {
 		t.Fatalf("code=%d mappings=%#v", code, got)
 	}
 }
+
+func TestRelayProbeDelegatesAndReportsFailure(t *testing.T) {
+	var stderr bytes.Buffer
+	code := execute(context.Background(), []string{"relay-probe"}, &bytes.Buffer{}, &stderr, dependencies{
+		relayProbe: func(context.Context) error { return errors.New("relay unreachable") },
+	})
+	if code != 1 || !strings.Contains(stderr.String(), "relay unreachable") {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	code = execute(context.Background(), []string{"relay-probe"}, &bytes.Buffer{}, &bytes.Buffer{}, dependencies{
+		relayProbe: func(context.Context) error { return nil },
+	})
+	if code != 0 {
+		t.Fatalf("successful probe code = %d", code)
+	}
+}

@@ -195,3 +195,14 @@ wktbox agents status --target all
 The installed skill has local modifications. Review and preserve them before
 using `wktbox agents install --force` or
 `wktbox agents uninstall --force`. See [Agent integration](agents.md).
+
+## Host import relay is not reachable from the box
+
+`wktbox port import`, `up`, or `restart` reports that the host import relay is
+not reachable from the box when the sidecar cannot connect to the relay with
+the box token. Wktbox rolls the change back rather than widening the relay
+bind. Check that the host firewall accepts TCP from Docker bridges to the
+reserved relay port shown by `wktbox --json status` (`ports` block start plus
+4). If containers on this host reach the host through another address, set
+`WKTBOX_RELAY_BIND` to that IPv4 address. Use `WKTBOX_RELAY_BIND=0.0.0.0` only
+on a trusted network, because the relay then listens on every interface.

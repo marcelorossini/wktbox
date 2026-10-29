@@ -46,6 +46,8 @@ type fakeBackend struct {
 	portApplyCalls     []compose.Project
 	portRuntimeCalls   []compose.Project
 	portApplyHook      func(context.Context, compose.Project) error
+	relayProbeErr      error
+	relayProbeCalls    []compose.Project
 }
 
 type downCall struct {
@@ -151,6 +153,14 @@ func (backend *fakeBackend) PortRuntimeApply(
 		return backend.portRuntimeErrors[index]
 	}
 	return nil
+}
+
+func (backend *fakeBackend) RelayProbe(
+	_ context.Context,
+	project compose.Project,
+) error {
+	backend.relayProbeCalls = append(backend.relayProbeCalls, project)
+	return backend.relayProbeErr
 }
 
 func (backend *fakeBackend) EnsureConnectionNetwork(

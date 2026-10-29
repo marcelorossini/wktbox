@@ -24,8 +24,10 @@ real host 127.0.0.1:1234 -> every workload container localhost:1234
 ```
 
 After the command, both `127.0.0.1:1234` and `localhost:1234` work inside every
-running workload container. Future workloads receive the same import
-automatically.
+running workload container and inside Webtop, where `wktbox run`, terminals,
+and desktop tools such as DBeaver execute. Future workloads receive the same
+import automatically, shortly after they start; a process that connects within
+its first second may need one retry.
 
 Use `--map` to change the port seen by the containers:
 
@@ -61,7 +63,10 @@ running workload. If one container already listens on any requested port, the
 entire batch fails and no mapping, proxy, configuration, or state change is
 kept. If a future container starts with a conflicting reserved port, that
 container is stopped and `wktbox status` reports `port_import_conflict`; the
-desired import remains active for the other workloads.
+desired import remains active for the other workloads. Webtop is never stopped:
+when an automatic route or desktop process already uses the port there, the
+import stays available to workloads and `wktbox status` reports
+`port_import_desktop_conflict`.
 
 ## Publish a box port on the real host
 
