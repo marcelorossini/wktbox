@@ -29,6 +29,8 @@ All notable changes to Wktbox are documented here. The format follows
   output storage shared by Webtop and project containers.
 - Webtop base images are pinned by digest.
 - A new `tests/e2e/agent_workflow.sh` covers the coding-agent workflow.
+- A new `tests/e2e/desktop_relay.sh` emulates Docker Desktop's
+  `host.docker.internal` forwarding to verify the loopback relay path.
 - `lifecycle.idleTimeout` and `lifecycle.removeOnWorktreeDelete` are rejected
   instead of silently ignored, because automatic cleanup is not implemented.
 - An import relay left by an earlier version, or listening on another address,
