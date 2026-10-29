@@ -92,6 +92,13 @@ identity="$("$wktbox" --path "$workspace" run -- sh -c 'id -u; id -g' 2>/dev/nul
   fail "the workspace user cannot reach the inner Docker daemon"
 [[ "$("$wktbox" --path "$workspace" run --root -- id -u 2>/dev/null)" == 0 ]] ||
   fail "--root did not run as root"
+"$wktbox" --path "$workspace" run -- npm cache verify >/dev/null 2>&1 ||
+  fail "npm cannot use its cache in the desktop home"
+"$wktbox" --path "$workspace" run --root -- docker buildx ls >/dev/null 2>&1 ||
+  fail "root could not use the Docker CLI"
+root_owned="$(docker exec "wktbox-$box_id-webtop-1" \
+  find /config -mindepth 1 -xdev -user 0 -print)"
+[[ -z "$root_owned" ]] || fail "root-owned entries in the desktop home: $root_owned"
 set +e
 "$wktbox" --path "$workspace" run -- sh -c 'exit 7' >/dev/null 2>&1
 exit_code=$?

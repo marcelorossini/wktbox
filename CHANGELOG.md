@@ -38,6 +38,9 @@ All notable changes to Wktbox are documented here. The format follows
 
 - Fixed the Webtop image build after Node.js LTS stopped bundling Corepack.
 - Chromium no longer shows a "Restore pages?" prompt after a box restart.
+- Root-owned files left in the Webtop home `/config` by earlier versions,
+  such as Docker CLI state, are returned to the desktop user on start, and
+  `--root` commands use `HOME=/root` so they no longer write there.
 - Visual Studio Code opens from the Webtop menu and the `code` command; its
   Electron sandbox crashed under Docker's default seccomp profile.
 - Commands run through `wktbox run` found no `node` because NVM was only loaded

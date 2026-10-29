@@ -77,6 +77,7 @@ RUN git clone --branch "$NVM_VERSION" --depth 1 \
     && { command -v corepack >/dev/null || npm install --global corepack; } \
     && nvm cache clear \
     && npm cache clean --force \
+    && rm -rf /config/.npm \
     && rm -rf "$NVM_DIR/.git" \
     && test "$(nvm --version)" = "${NVM_VERSION#v}" \
     && node --version \
@@ -128,6 +129,7 @@ RUN test -x /usr/local/bin/wrapped-chromium \
     && test -x /usr/local/bin/wktbox-chromium-supervisor \
     && test -x /usr/local/bin/wktbox-init-nvm \
     && test -x /usr/local/bin/wktbox-exec \
+    && test -z "$(find /config -mindepth 1 -xdev -user 0 -print -quit)" \
     && test -r /etc/profile.d/wktbox-nvm.sh \
     && test -s /usr/local/share/nvm/nvm.sh \
     && test -r /etc/xdg/autostart/wktbox-chromium.desktop \

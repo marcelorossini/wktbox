@@ -79,7 +79,11 @@ func (executor Executor) Run(
 	if !options.TTY {
 		arguments = append(arguments, "-T")
 	}
-	if !options.Root {
+	if options.Root {
+		// Webtop sets HOME=/config, the desktop user's home. Keep root state
+		// such as Docker CLI configuration out of it.
+		arguments = append(arguments, "--env", "HOME=/root")
+	} else {
 		arguments = append(arguments, "--user", WorkspaceUser)
 	}
 	arguments = append(arguments, "-w", containerCWD)

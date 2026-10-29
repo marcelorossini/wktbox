@@ -115,10 +115,14 @@ func TestRunAsRootOmitsWorkspaceUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, argument := range runner.invocations[0].Arguments {
+	arguments := runner.invocations[0].Arguments
+	for _, argument := range arguments {
 		if argument == "--user" {
-			t.Fatalf("root execution selected a user: %#v", runner.invocations[0].Arguments)
+			t.Fatalf("root execution selected a user: %#v", arguments)
 		}
+	}
+	if !strings.Contains(strings.Join(arguments, " "), "--env HOME=/root") {
+		t.Fatalf("root execution kept the desktop home: %#v", arguments)
 	}
 }
 
