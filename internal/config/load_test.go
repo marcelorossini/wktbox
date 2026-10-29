@@ -203,3 +203,60 @@ func writeFile(t *testing.T, path string, body string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadValidatesResources(t *testing.T) {
+	for name, body := range map[string]string{
+		"negative cpus":  "cpus: -1",
+		"negative pids":  "pids: -1",
+		"invalid memory": "memory: lots",
+		"zero memory":    `memory: "0"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			worktree := t.TempDir()
+			writeFile(t, filepath.Join(worktree, ".wktbox.yml"),
+				"version: 1\nresources:\n  "+body+"\n")
+			if _, err := config.Load(worktree, nil, config.Overrides{}, "dev"); err == nil {
+				t.Fatal("invalid resources were accepted")
+			}
+		})
+	}
+	for _, memory := range []string{"512m", "8gb", "4G", "1073741824"} {
+		worktree := t.TempDir()
+		writeFile(t, filepath.Join(worktree, ".wktbox.yml"),
+			"version: 1\nresources:\n  cpus: 1.5\n  pids: 4096\n  memory: "+memory+"\n")
+		got, err := config.Load(worktree, nil, config.Overrides{}, "dev")
+		if err != nil {
+			t.Fatalf("memory %q rejected: %v", memory, err)
+		}
+		if got.Resources.Memory != memory || got.Resources.PIDs != 4096 {
+			t.Fatalf("resources = %#v", got.Resources)
+		}
+	}
+}
+
+func TestLoadRejectsUnsupportedLifecycleAndInvalidCommands(t *testing.T) {
+	for name, body := range map[string]string{
+		"idle timeout":     "lifecycle:\n  idleTimeout: 30\n",
+		"remove on delete": "lifecycle:\n  removeOnWorktreeDelete: true\n",
+		"empty command":    "commands:\n  test:\n    command: []\n",
+		"invalid name":     "commands:\n  Bad Name:\n    command: [true]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			worktree := t.TempDir()
+			writeFile(t, filepath.Join(worktree, ".wktbox.yml"), "version: 1\n"+body)
+			if _, err := config.Load(worktree, nil, config.Overrides{}, "dev"); err == nil {
+				t.Fatal("unsupported configuration was accepted")
+			}
+		})
+	}
+	worktree := t.TempDir()
+	writeFile(t, filepath.Join(worktree, ".wktbox.yml"),
+		"version: 1\ncommands:\n  e2e:\n    command: [go, test, ./...]\nlifecycle:\n  idleTimeout: 0\n")
+	got, err := config.Load(worktree, nil, config.Overrides{}, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Commands["e2e"].Command) != 3 {
+		t.Fatalf("commands = %#v", got.Commands)
+	}
+}

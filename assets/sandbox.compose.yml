@@ -9,6 +9,7 @@ services:
         dns_address="$$(ip -4 route get 192.0.2.1 |
         sed -n 's/.* src \([^ ]*\).*/\1/p')";
         test -n "$$dns_address";
+        chown ${PUID}:${PGID} /artifacts;
         exec /usr/local/bin/dockerd-entrypoint.sh --dns="$$dns_address"
     privileged: true
     stop_grace_period: 30s
@@ -88,6 +89,8 @@ services:
       - type: bind
         source: ${WORKTREE_PATH}
         target: /workspace
+    extra_hosts:
+      - host.docker.internal:host-gateway
     ports:
       - 127.0.0.1:${PORT_HTTP}:61000
       - 127.0.0.1:${PORT_HTTPS}:61001

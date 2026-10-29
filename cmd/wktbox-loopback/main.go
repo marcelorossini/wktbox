@@ -272,6 +272,7 @@ func runSidecar(ctx context.Context) error {
 		Imports:                 imports,
 		LoadPortMappings:        loadMappings,
 		PortTransactionLockPath: transactionLockPath,
+		DesktopImportPID:        os.Getpid(),
 		Logf:                    log.Printf,
 	})
 	controller := persistentController{

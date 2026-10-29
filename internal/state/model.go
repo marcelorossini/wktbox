@@ -58,6 +58,7 @@ type BoxRecord struct {
 	SandboxEnvPath         string                `json:"sandboxEnvPath"`
 	ProjectEnvOverridePath string                `json:"projectEnvOverridePath,omitempty"`
 	GatewayEnabled         bool                  `json:"gatewayEnabled,omitempty"`
+	BrowserCDPDisabled     bool                  `json:"browserCdpDisabled,omitempty"`
 	PortConfigPath         string                `json:"portConfigPath,omitempty"`
 	PortOverridePath       string                `json:"portOverridePath,omitempty"`
 	PortRelayTokenPath     string                `json:"portRelayTokenPath,omitempty"`

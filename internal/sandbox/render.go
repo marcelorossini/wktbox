@@ -27,6 +27,10 @@ type projectEnvOverride struct {
 type overrideService struct {
 	Environment map[string]string `yaml:"environment,omitempty"`
 	Volumes     []overrideVolume  `yaml:"volumes,omitempty"`
+	CPUs        string            `yaml:"cpus,omitempty"`
+	MemLimit    string            `yaml:"mem_limit,omitempty"`
+	PidsLimit   int               `yaml:"pids_limit,omitempty"`
+	Ports       *yaml.Node        `yaml:"ports,omitempty"`
 }
 
 type overrideVolume struct {
@@ -155,7 +159,9 @@ func Render(directory string, spec Spec) (Files, error) {
 	overridePath := filepath.Join(directory, "project-env.override.yml")
 	if spec.ProjectEnv.Mount ||
 		len(spec.GitBridge.Mounts) != 0 ||
-		len(spec.GitBridge.Environment) != 0 {
+		len(spec.GitBridge.Environment) != 0 ||
+		hasResourceLimits(spec) ||
+		!spec.Config.Webtop.BrowserCDP {
 		override, err := renderRuntimeOverride(spec)
 		if err != nil {
 			return Files{}, err
@@ -306,11 +312,42 @@ func renderRuntimeOverride(spec Spec) ([]byte, error) {
 		}
 		document.Services["webtop"] = webtop
 	}
+	if hasResourceLimits(spec) {
+		// Workload containers are nested in the DinD cgroup, so limiting the
+		// docker service bounds every project container of the box.
+		docker := document.Services["docker"]
+		resources := spec.Config.Resources
+		if resources.CPUs > 0 {
+			docker.CPUs = strconv.FormatFloat(resources.CPUs, 'f', -1, 64)
+		}
+		docker.MemLimit = resources.Memory
+		docker.PidsLimit = resources.PIDs
+		document.Services["docker"] = docker
+	}
+	if !spec.Config.Webtop.BrowserCDP {
+		// The base file publishes Browser CDP; replace the port list so only
+		// the Webtop desktop remains reachable from the host.
+		webtop := document.Services["webtop"]
+		webtop.Ports = &yaml.Node{
+			Kind: yaml.SequenceNode,
+			Tag:  "!override",
+			Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Value: "127.0.0.1:${PORT_HTTP}:61000"},
+				{Kind: yaml.ScalarNode, Value: "127.0.0.1:${PORT_HTTPS}:61001"},
+			},
+		}
+		document.Services["webtop"] = webtop
+	}
 	data, err := yaml.Marshal(document)
 	if err != nil {
 		return nil, fmt.Errorf("encode project env override: %w", err)
 	}
 	return data, nil
+}
+
+func hasResourceLimits(spec Spec) bool {
+	resources := spec.Config.Resources
+	return resources.CPUs > 0 || resources.Memory != "" || resources.PIDs > 0
 }
 
 func writeProtected(path string, data []byte) (bool, error) {

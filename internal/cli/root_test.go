@@ -14,6 +14,7 @@ import (
 	"wktbox/internal/agentintegration"
 	"wktbox/internal/app"
 	"wktbox/internal/cli"
+	"wktbox/internal/config"
 	"wktbox/internal/executor"
 	"wktbox/internal/loopback"
 	"wktbox/internal/portforward"
@@ -39,6 +40,7 @@ type fakeService struct {
 	connection   state.ConnectionRecord
 	connections  []state.ConnectionRecord
 	portMappings []portforward.ObservedMapping
+	tasks        map[string]config.Command
 }
 
 type fakeAgentManager struct {
@@ -106,7 +108,9 @@ func newFakeService() *fakeService {
 func (fake *fakeService) Resolve(_ context.Context, request app.Request) (app.Resolution, error) {
 	fake.calls = append(fake.calls, "Resolve:"+request.Path)
 	fake.box.Worktree = request.Path
-	return app.Resolution{Request: request, ID: fake.box.ID}, nil
+	resolution := app.Resolution{Request: request, ID: fake.box.ID}
+	resolution.Spec.Config.Commands = fake.tasks
+	return resolution, nil
 }
 
 func (fake *fakeService) Ensure(_ context.Context, _ app.Resolution) (state.BoxRecord, error) {
@@ -173,6 +177,9 @@ func (fake *fakeService) Run(
 ) (int, error) {
 	fake.calls = append(fake.calls, "Run:"+strings.Join(command, "|"))
 	fake.calls = append(fake.calls, "Env:"+strings.Join(options.Environment, "|"))
+	if options.Root {
+		fake.calls = append(fake.calls, "Root")
+	}
 	if options.Stdout != nil {
 		_, _ = io.WriteString(options.Stdout, fake.childOut)
 	}
@@ -481,6 +488,80 @@ func TestRunEnsuresBoxThenPassesChildArgsAndEnvironment(t *testing.T) {
 		"Env:TOKEN=value with spaces",
 		"SyncLoopback",
 	)
+}
+
+func TestRunRootFlagSelectsRootExecution(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"run", "--root", "--", "apt-get", "update"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, fake.calls,
+		"Resolve:.",
+		"Ensure",
+		"Run:apt-get|update",
+		"Env:",
+		"Root",
+		"SyncLoopback",
+	)
+}
+
+func TestTaskRunsConfiguredCommandWithExtraArguments(t *testing.T) {
+	fake := newFakeService()
+	fake.tasks = map[string]config.Command{
+		"test": {Command: []string{"go", "test", "./..."}},
+	}
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"task", "test", "--", "-run", "TestX"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertCalls(t, fake.calls,
+		"Resolve:.",
+		"Ensure",
+		"Run:go|test|./...|-run|TestX",
+		"Env:",
+		"SyncLoopback",
+	)
+}
+
+func TestTaskWithoutNameListsConfiguredCommands(t *testing.T) {
+	fake := newFakeService()
+	fake.tasks = map[string]config.Command{
+		"lint": {Command: []string{"npm", "run", "lint"}},
+		"e2e":  {Command: []string{"go", "test", "./tests/..."}},
+	}
+	streams := testStreams()
+	root := cli.New(cli.Dependencies{Service: fake}, streams)
+	root.SetArgs([]string{"task"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "e2e: go test ./tests/...\nlint: npm run lint\n"
+	if got := streams.Out.(*bytes.Buffer).String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+	assertCalls(t, fake.calls, "Resolve:.")
+}
+
+func TestTaskRejectsUnknownName(t *testing.T) {
+	fake := newFakeService()
+	root := cli.New(cli.Dependencies{Service: fake}, testStreams())
+	root.SetArgs([]string{"task", "missing"})
+
+	err := root.Execute()
+
+	if err == nil || !strings.Contains(err.Error(), `unknown task "missing"`) {
+		t.Fatalf("error = %v", err)
+	}
+	assertCalls(t, fake.calls, "Resolve:.")
 }
 
 func TestExecStoppedBoxReturnsActionableError(t *testing.T) {

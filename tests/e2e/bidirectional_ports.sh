@@ -280,15 +280,16 @@ connection.close()
 
 wait_host_port_open() {
   local port="$1"
+  local host="${2:-127.0.0.1}"
   local deadline=$((SECONDS + 30))
   while ((SECONDS < deadline)); do
     if python3 -c '
 import socket
 import sys
 
-connection = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
+connection = socket.create_connection((sys.argv[2], int(sys.argv[1])), timeout=1)
 connection.close()
-' "$port" >/dev/null 2>&1; then
+' "$port" "$host" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -298,15 +299,16 @@ connection.close()
 
 wait_host_port_closed() {
   local port="$1"
+  local host="${2:-127.0.0.1}"
   local deadline=$((SECONDS + 30))
   while ((SECONDS < deadline)); do
     if ! python3 -c '
 import socket
 import sys
 
-connection = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
+connection = socket.create_connection((sys.argv[2], int(sys.argv[1])), timeout=1)
 connection.close()
-' "$port" >/dev/null 2>&1; then
+' "$port" "$host" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -552,13 +554,32 @@ import sys
 
 print(json.load(sys.stdin)["ports"]["webtopHttp"] + 4)
 ')"
-wait_host_port_open "$relay_port"
+# On a native Linux engine the relay binds only to the default bridge gateway,
+# which workloads reach as host.docker.internal; it must not listen on every
+# interface.
+relay_host="$(docker network inspect bridge \
+  --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null |
+  tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -n 1 || true)"
+if [[ "$(uname -s)" != Linux ]] ||
+  docker info --format '{{.OperatingSystem}}' | grep -q 'Docker Desktop'; then
+  relay_host=""
+fi
+relay_host="${relay_host:-127.0.0.1}"
+wait_host_port_open "$relay_port" "$relay_host"
+if [[ "$relay_host" != "127.0.0.1" ]] && python3 -c '
+import socket
+import sys
+
+socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1).close()
+' "$relay_port" >/dev/null 2>&1; then
+  fail_with_diagnostics "host import relay listens beyond $relay_host"
+fi
 "$wktbox" --path "$workspace_a" stop >/dev/null
 if curl --fail --silent --max-time 1 \
   "http://127.0.0.1:$publish_http/marker.txt" >/dev/null 2>&1; then
   fail_with_diagnostics "publication remained open after stop"
 fi
-wait_host_port_closed "$relay_port"
+wait_host_port_closed "$relay_port" "$relay_host"
 stopped_status="$("$wktbox" --path "$workspace_a" --json status)"
 for mapping in host-http host-raw "import-$host_same" published-http published-raw; do
   json_has_mapping "$stopped_status" "$mapping" ||

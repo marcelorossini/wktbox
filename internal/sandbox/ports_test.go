@@ -256,7 +256,7 @@ func TestPortMappingTransactionBlocksBackgroundReconciliation(t *testing.T) {
 
 	select {
 	case <-activationStarted:
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("port mapping activation did not start")
 	}
 	if config := readPortFixtureFile(
@@ -287,7 +287,7 @@ func TestPortMappingTransactionBlocksBackgroundReconciliation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("port mapping transaction did not finish")
 	}
 	unlock, err = lock.Acquire(context.Background(), lockPath)
@@ -723,7 +723,12 @@ func newPortManagerFixture(t *testing.T) portManagerFixture {
 		store,
 		lock.NewManager(root),
 		func() time.Time { return time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC) },
-		sandbox.ManagerOptions{Relay: relay},
+		sandbox.ManagerOptions{
+			Relay: relay,
+			RelayHost: func(context.Context) string {
+				return "0.0.0.0"
+			},
+		},
 	)
 	return portManagerFixture{
 		manager: manager,

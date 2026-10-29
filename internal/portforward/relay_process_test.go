@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,4 +148,57 @@ func parseTestPort(t *testing.T, value string) uint16 {
 		t.Fatal(err)
 	}
 	return mappings[0].SourcePort
+}
+
+func TestEnsureRelayProcessReplacesRelayWithOutdatedBind(t *testing.T) {
+	root := t.TempDir()
+	tokenPath := filepath.Join(root, "port-relay.token")
+	pidPath := filepath.Join(root, "port-relay.pid")
+	token, err := portforward.EnsureRelayToken(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listenAddress := reserveTestAddress(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- portforward.RunRelayProcess(context.Background(), portforward.RelayProcessOptions{
+			ListenAddress: listenAddress,
+			ConfigPath:    filepath.Join(root, "ports.json"),
+			TokenPath:     tokenPath,
+			PIDPath:       pidPath,
+		})
+	}()
+	waitForRelay(t, listenAddress, token)
+	recorded, err := os.ReadFile(filepath.Join(root, "port-relay.listen"))
+	if err != nil || strings.TrimSpace(string(recorded)) != listenAddress {
+		t.Fatalf("listen record = %q, %v", recorded, err)
+	}
+
+	// The same relay is accepted while its recorded bind matches.
+	matching := portforward.RelayProcessOptions{
+		ListenAddress: listenAddress,
+		TokenPath:     tokenPath,
+		PIDPath:       pidPath,
+		LogPath:       filepath.Join(root, "port-relay.log"),
+		Executable:    filepath.Join(root, "missing-wktbox"),
+	}
+	if _, err := portforward.EnsureRelayProcess(context.Background(), matching); err != nil {
+		t.Fatalf("matching relay was not reused: %v", err)
+	}
+
+	// A different desired bind stops the running relay before relaunching.
+	outdated := matching
+	outdated.ProbeAddress = listenAddress
+	outdated.ListenAddress = "0.0.0.0:" + strings.Split(listenAddress, ":")[1]
+	if _, err := portforward.EnsureRelayProcess(context.Background(), outdated); err == nil {
+		t.Fatal("relaunch with a missing executable unexpectedly succeeded")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("relay process: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("outdated relay was not stopped")
+	}
 }

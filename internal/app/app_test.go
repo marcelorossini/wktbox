@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -465,7 +466,7 @@ func TestRunUsesExecutorAndTouchesBoxAfterChildExit(t *testing.T) {
 		t.Fatalf("invocations = %d", len(interactive.invocations))
 	}
 	gotArgs := interactive.invocations[0].Arguments
-	wantSuffix := []string{"webtop", "printf", "%s", "value with spaces"}
+	wantSuffix := []string{"wktbox-exec", "printf", "%s", "value with spaces"}
 	if !reflect.DeepEqual(gotArgs[len(gotArgs)-len(wantSuffix):], wantSuffix) {
 		t.Fatalf("arguments = %#v", gotArgs)
 	}
@@ -625,13 +626,13 @@ func TestMountedGitModeIsRenderedAndValidatedInsideWebtop(t *testing.T) {
 	gotCommands := make([][]string, 0, len(interactive.invocations))
 	for _, invocation := range interactive.invocations {
 		arguments := invocation.Arguments
-		webtopIndex := -1
+		launcherIndex := -1
 		for index, argument := range arguments {
-			if argument == "webtop" {
-				webtopIndex = index
+			if argument == "wktbox-exec" {
+				launcherIndex = index
 			}
 		}
-		gotCommands = append(gotCommands, arguments[webtopIndex+1:])
+		gotCommands = append(gotCommands, arguments[launcherIndex+1:])
 	}
 	wantCommands := [][]string{
 		{"git", "status", "--short"},
@@ -863,5 +864,62 @@ func TestDoctorReturnsEveryCheckEvenWhenDockerProbesFail(t *testing.T) {
 	}
 	if report.OK {
 		t.Fatal("empty Docker version probes should fail")
+	}
+}
+
+type recordingProcessRunner struct {
+	calls [][]string
+}
+
+func (runner *recordingProcessRunner) Run(
+	_ context.Context,
+	name string,
+	arguments ...string,
+) (process.Result, error) {
+	runner.calls = append(runner.calls, append([]string{name}, arguments...))
+	return process.Result{}, nil
+}
+
+func TestRunRepairsRootOwnedWorkspaceEntriesAfterChildExit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("ownership repair applies to native Linux hosts")
+	}
+	processes := &recordingProcessRunner{}
+	service := app.New(app.Options{
+		ProcessRunner:     processes,
+		Manager:           &fakeManager{},
+		InteractiveRunner: &interactiveRunner{code: 3},
+		Allocator:         ports.NewAllocator(23000, 10),
+		PUID:              1000,
+		PGID:              1001,
+	})
+	box := state.BoxRecord{
+		ID:             "a4f8c9137d2b",
+		Worktree:       "/repo",
+		ProjectName:    "wktbox-a4f8c9137d2b",
+		ComposePath:    "/state/compose.yml",
+		SandboxEnvPath: "/state/sandbox.env",
+	}
+
+	code, err := service.Run(
+		context.Background(),
+		box,
+		[]string{"false"},
+		executor.Options{HostCWD: "/repo"},
+	)
+	if err != nil || code != 3 {
+		t.Fatalf("code = %d, err = %v", code, err)
+	}
+	want := []string{
+		"docker", "compose",
+		"-p", "wktbox-a4f8c9137d2b",
+		"--env-file", "/state/sandbox.env",
+		"-f", "/state/compose.yml",
+		"exec", "-T", "docker",
+		"find", "/workspace", "/artifacts", "-xdev", "-user", "0",
+		"-exec", "chown", "-h", "1000:1001", "{}", "+",
+	}
+	if len(processes.calls) != 1 || !reflect.DeepEqual(processes.calls[0], want) {
+		t.Fatalf("repair calls = %#v", processes.calls)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
 	"wktbox/internal/process"
+	"wktbox/internal/state"
 )
 
 type RuntimeState string
@@ -33,6 +34,43 @@ type Project struct {
 	EnvFile             string
 	GatewayEnabled      bool
 	PortMappingsEnabled bool
+}
+
+// ProjectFor derives the Compose project of a recorded box. Every caller that
+// invokes Compose for a box must use it so file and profile selection agree.
+func ProjectFor(record state.BoxRecord) Project {
+	files := []string{record.ComposePath}
+	if record.ProjectEnvOverridePath != "" {
+		files = append(files, record.ProjectEnvOverridePath)
+	}
+	if record.PortOverridePath != "" {
+		files = append(files, record.PortOverridePath)
+	}
+	return Project{
+		Name:           record.ProjectName,
+		Files:          files,
+		EnvFile:        record.SandboxEnvPath,
+		GatewayEnabled: record.GatewayEnabled,
+		PortMappingsEnabled: len(portforward.Filter(
+			record.PortMappings,
+			portforward.Publish,
+		)) != 0,
+	}
+}
+
+// Arguments returns the docker CLI arguments that select the project.
+func (project Project) Arguments() []string {
+	arguments := []string{"compose", "-p", project.Name, "--env-file", project.EnvFile}
+	for _, file := range project.Files {
+		arguments = append(arguments, "-f", file)
+	}
+	if project.GatewayEnabled {
+		arguments = append(arguments, "--profile", "gateway")
+	}
+	if project.PortMappingsEnabled {
+		arguments = append(arguments, "--profile", "ports")
+	}
+	return arguments
 }
 
 type ContainerStatus struct {
@@ -680,17 +718,7 @@ func (client Client) run(
 	if project.Name == "" || len(project.Files) == 0 || project.EnvFile == "" {
 		return process.Result{}, errors.New("invalid Docker Compose project")
 	}
-	arguments := []string{"compose", "-p", project.Name, "--env-file", project.EnvFile}
-	for _, file := range project.Files {
-		arguments = append(arguments, "-f", file)
-	}
-	if project.GatewayEnabled {
-		arguments = append(arguments, "--profile", "gateway")
-	}
-	if project.PortMappingsEnabled {
-		arguments = append(arguments, "--profile", "ports")
-	}
-	arguments = append(arguments, action...)
+	arguments := append(project.Arguments(), action...)
 	result, err := client.runner.Run(ctx, "docker", arguments...)
 	if err != nil {
 		return result, commandError("docker compose "+action[0], result, err)

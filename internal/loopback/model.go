@@ -30,6 +30,9 @@ type Container struct {
 	PID     int
 	Labels  map[string]string
 	Ports   []PortBinding
+	// Desktop marks the Webtop network namespace shared by the sidecar. It
+	// receives host imports like a workload but is never stopped on conflict.
+	Desktop bool
 }
 
 type Publication struct {

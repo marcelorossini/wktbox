@@ -397,7 +397,7 @@ func GatewayURL(box state.BoxRecord) string {
 }
 
 func BrowserCDPURL(box state.BoxRecord) string {
-	if box.Ports.Size < 6 {
+	if box.Ports.Size < 6 || box.BrowserCDPDisabled {
 		return ""
 	}
 	return fmt.Sprintf("http://localhost:%d", box.Ports.BrowserCDP())
@@ -424,6 +424,9 @@ func boxData(box state.BoxRecord) BoxData {
 			SSH:         box.Ports.SSH(),
 			Gateway:     box.Ports.Gateway(),
 			BrowserCDP:  box.Ports.BrowserCDP(),
+		}
+		if box.BrowserCDPDisabled {
+			data.Ports.BrowserCDP = 0
 		}
 	}
 	if !box.CreatedAt.IsZero() {

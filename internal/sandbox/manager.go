@@ -14,6 +14,7 @@ import (
 	"wktbox/internal/loopback"
 	"wktbox/internal/portforward"
 	"wktbox/internal/ports"
+	"wktbox/internal/process"
 	"wktbox/internal/state"
 )
 
@@ -25,6 +26,8 @@ type Manager struct {
 	locks   lock.Manager
 	now     func() time.Time
 	relay   RelayLifecycle
+	// relayHost reports the host address the import relay binds to.
+	relayHost func(context.Context) string
 }
 
 type RelayLifecycle interface {
@@ -34,7 +37,8 @@ type RelayLifecycle interface {
 }
 
 type ManagerOptions struct {
-	Relay RelayLifecycle
+	Relay     RelayLifecycle
+	RelayHost func(context.Context) string
 }
 
 type nativeRelayLifecycle struct{}
@@ -96,12 +100,16 @@ func NewManagerWithOptions(
 	if options.Relay == nil {
 		options.Relay = nativeRelayLifecycle{}
 	}
+	if options.RelayHost == nil {
+		options.RelayHost = nativeRelayHost(process.OSRunner{})
+	}
 	return Manager{
-		backend: backend,
-		store:   store,
-		locks:   locks,
-		now:     now,
-		relay:   options.Relay,
+		backend:   backend,
+		store:     store,
+		locks:     locks,
+		now:       now,
+		relay:     options.Relay,
+		relayHost: options.RelayHost,
 	}
 }
 
@@ -189,6 +197,7 @@ func (manager Manager) ensure(
 	record.SandboxEnvPath = files.SandboxEnvPath
 	record.ProjectEnvOverridePath = files.ProjectEnvOverridePath
 	record.GatewayEnabled = spec.Config.Gateway.Enabled
+	record.BrowserCDPDisabled = !spec.Config.Webtop.BrowserCDP
 	record.PortConfigPath = files.PortConfigPath
 	record.PortOverridePath = files.PortOverridePath
 	record.PortRelayTokenPath = files.PortRelayTokenPath
@@ -408,7 +417,7 @@ func (manager Manager) Stop(ctx context.Context, id string) error {
 		return manager.persistError(ctx, current, record, err)
 	}
 	if len(portforward.Filter(record.PortMappings, portforward.Import)) != 0 {
-		if err := manager.relay.Stop(ctx, relayOptions(record)); err != nil {
+		if err := manager.relay.Stop(ctx, manager.relayOptions(ctx, record)); err != nil {
 			return manager.persistError(ctx, current, record, err)
 		}
 	}
@@ -514,7 +523,7 @@ func (manager Manager) Destroy(ctx context.Context, id string) error {
 		return manager.persistError(ctx, current, record, err)
 	}
 	if len(portforward.Filter(record.PortMappings, portforward.Import)) != 0 {
-		if err := manager.relay.Stop(ctx, relayOptions(record)); err != nil {
+		if err := manager.relay.Stop(ctx, manager.relayOptions(ctx, record)); err != nil {
 			return manager.persistError(ctx, current, record, err)
 		}
 	}
@@ -637,23 +646,7 @@ func (manager Manager) persistError(
 }
 
 func projectFor(record state.BoxRecord) compose.Project {
-	files := []string{record.ComposePath}
-	if record.ProjectEnvOverridePath != "" {
-		files = append(files, record.ProjectEnvOverridePath)
-	}
-	if record.PortOverridePath != "" {
-		files = append(files, record.PortOverridePath)
-	}
-	return compose.Project{
-		Name:           record.ProjectName,
-		Files:          files,
-		EnvFile:        record.SandboxEnvPath,
-		GatewayEnabled: record.GatewayEnabled,
-		PortMappingsEnabled: len(portforward.Filter(
-			record.PortMappings,
-			portforward.Publish,
-		)) != 0,
-	}
+	return compose.ProjectFor(record)
 }
 
 func statusFromCompose(

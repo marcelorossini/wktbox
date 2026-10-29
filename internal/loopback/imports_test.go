@@ -457,3 +457,60 @@ func (stopper *fakeImportStopper) Stop(
 	stopper.stopped = append(stopper.stopped, containerID)
 	return nil
 }
+
+func TestDesktopImportConflictWarnsWithoutStoppingOrFailing(t *testing.T) {
+	conflict := fmt.Errorf("%w: address already in use", loopback.ErrImportPortConflict)
+	factory := &fakeImportFactory{
+		conflicts: map[string]error{"webtop/postgres": conflict},
+	}
+	stopper := &fakeImportStopper{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{
+		Factory: factory,
+		Stopper: stopper,
+	})
+	targets := []loopback.Container{
+		{ID: "a", Name: "api", PID: 42, Running: true},
+		{ID: "wktbox-webtop", Name: "webtop", PID: 7, Running: true, Desktop: true},
+	}
+	mappings := []portforward.Mapping{importMapping("postgres", 5432)}
+
+	if err := reconciler.Preflight(context.Background(), targets, mappings); err != nil {
+		t.Fatalf("preflight rejected a desktop-only conflict: %v", err)
+	}
+	for _, mode := range []loopback.ImportApplyMode{
+		loopback.ImportApplyTransaction,
+		loopback.ImportApplyEvent,
+	} {
+		warnings, err := reconciler.Apply(context.Background(), targets, mappings, mode)
+		if err != nil {
+			t.Fatalf("mode %d: %v", mode, err)
+		}
+		if len(warnings) != 1 || warnings[0].Code != "port_import_desktop_conflict" {
+			t.Fatalf("mode %d warnings = %#v", mode, warnings)
+		}
+	}
+	if !reflect.DeepEqual(factory.started, []string{"api/postgres"}) {
+		t.Fatalf("started = %#v", factory.started)
+	}
+	if len(stopper.stopped) != 0 {
+		t.Fatalf("stopped = %#v", stopper.stopped)
+	}
+}
+
+func TestDesktopReceivesImportWhenPortIsFree(t *testing.T) {
+	factory := &fakeImportFactory{}
+	reconciler := loopback.NewImportReconciler(loopback.ImportOptions{Factory: factory})
+	if _, err := reconciler.Apply(
+		context.Background(),
+		[]loopback.Container{{
+			ID: "wktbox-webtop", Name: "webtop", PID: 7, Running: true, Desktop: true,
+		}},
+		[]portforward.Mapping{importMapping("postgres", 5432)},
+		loopback.ImportApplyTransaction,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(factory.started, []string{"webtop/postgres"}) {
+		t.Fatalf("started = %#v", factory.started)
+	}
+}

@@ -31,6 +31,9 @@ type DaemonOptions struct {
 	Imports                 ImportManager
 	LoadPortMappings        func() ([]portforward.Mapping, error)
 	PortTransactionLockPath string
+	// DesktopImportPID is a process in the Webtop network namespace. When
+	// positive, host imports are also served on Webtop localhost.
+	DesktopImportPID int
 }
 
 type ImportManager interface {
@@ -57,6 +60,7 @@ type Daemon struct {
 	imports                 ImportManager
 	loadPortMappings        func() ([]portforward.Mapping, error)
 	portTransactionLockPath string
+	desktopImportPID        int
 	syncMutex               sync.Mutex
 	logMutex                sync.Mutex
 	lastLog                 map[string]time.Time
@@ -102,6 +106,7 @@ func NewDaemon(options DaemonOptions) *Daemon {
 		imports:                 options.Imports,
 		loadPortMappings:        options.LoadPortMappings,
 		portTransactionLockPath: options.PortTransactionLockPath,
+		desktopImportPID:        options.DesktopImportPID,
 		lastLog:                 make(map[string]time.Time),
 	}
 }
@@ -205,7 +210,7 @@ func (daemon *Daemon) PreflightImports(
 	if err != nil {
 		return fmt.Errorf("snapshot inner Docker containers: %w", err)
 	}
-	return daemon.imports.Preflight(ctx, containers, mappings)
+	return daemon.imports.Preflight(ctx, daemon.importTargets(containers), mappings)
 }
 
 func (daemon *Daemon) sync(
@@ -231,7 +236,7 @@ func (daemon *Daemon) sync(
 		}
 		warnings, err := daemon.imports.Apply(
 			ctx,
-			containers,
+			daemon.importTargets(containers),
 			mappings,
 			importMode,
 		)
@@ -359,4 +364,19 @@ func waitContext(ctx context.Context, delay time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+// importTargets adds the Webtop namespace to the workloads that receive host
+// imports, so commands and desktop tools in Webtop reach them on localhost.
+func (daemon *Daemon) importTargets(containers []Container) []Container {
+	if daemon.desktopImportPID <= 0 {
+		return containers
+	}
+	return append(append([]Container(nil), containers...), Container{
+		ID:      "wktbox-webtop",
+		Name:    "webtop",
+		Running: true,
+		PID:     daemon.desktopImportPID,
+		Desktop: true,
+	})
 }

@@ -370,7 +370,7 @@ func (manager Manager) activatePortMappings(
 		portforward.Import,
 	)
 	if len(candidateImports) != 0 {
-		if err := manager.relay.Ensure(ctx, relayOptions(candidate)); err != nil {
+		if err := manager.relay.Ensure(ctx, manager.relayOptions(ctx, candidate)); err != nil {
 			return fmt.Errorf("start host import relay: %w", err)
 		}
 	}
@@ -392,7 +392,7 @@ func (manager Manager) activatePortMappings(
 	}
 	if len(candidateImports) == 0 &&
 		len(portforward.Filter(previous.PortMappings, portforward.Import)) != 0 {
-		if err := manager.relay.Stop(ctx, relayOptions(candidate)); err != nil {
+		if err := manager.relay.Stop(ctx, manager.relayOptions(ctx, candidate)); err != nil {
 			return fmt.Errorf("stop host import relay: %w", err)
 		}
 	}
@@ -418,7 +418,7 @@ func (manager Manager) rollbackPortMappings(
 	if len(previousImports) != 0 {
 		result = errors.Join(
 			result,
-			manager.relay.Ensure(ctx, relayOptions(previous)),
+			manager.relay.Ensure(ctx, manager.relayOptions(ctx, previous)),
 		)
 	}
 	if publicationsChanged {
@@ -434,7 +434,7 @@ func (manager Manager) rollbackPortMappings(
 	if len(previousImports) == 0 {
 		result = errors.Join(
 			result,
-			manager.relay.Stop(ctx, relayOptions(previous)),
+			manager.relay.Stop(ctx, manager.relayOptions(ctx, previous)),
 		)
 	}
 	if result != nil {
@@ -535,7 +535,7 @@ func (manager Manager) observePortMappings(
 	if len(imports) == 0 {
 		return observed
 	}
-	if err := manager.relay.Probe(ctx, relayOptions(record)); err != nil {
+	if err := manager.relay.Probe(ctx, manager.relayOptions(ctx, record)); err != nil {
 		observed = degradePortMappings(
 			observed,
 			portforward.Import,
@@ -676,14 +676,25 @@ func publicationListener(mapping portforward.Mapping) string {
 	)
 }
 
-func relayOptions(record state.BoxRecord) portforward.RelayProcessOptions {
+func (manager Manager) relayOptions(
+	ctx context.Context,
+	record state.BoxRecord,
+) portforward.RelayProcessOptions {
 	options := portforward.RelayProcessPaths(record.PortConfigPath)
 	if record.PortRelayTokenPath != "" {
 		options.TokenPath = record.PortRelayTokenPath
 	}
 	port := strconv.Itoa(record.Ports.ImportRelay())
-	options.ListenAddress = net.JoinHostPort("0.0.0.0", port)
-	options.ProbeAddress = net.JoinHostPort("127.0.0.1", port)
+	host := wildcardRelayHost
+	if manager.relayHost != nil {
+		host = manager.relayHost(ctx)
+	}
+	options.ListenAddress = net.JoinHostPort(host, port)
+	probeHost := host
+	if host == wildcardRelayHost {
+		probeHost = "127.0.0.1"
+	}
+	options.ProbeAddress = net.JoinHostPort(probeHost, port)
 	return options
 }
 
@@ -694,7 +705,7 @@ func (manager Manager) startImportRelay(
 	if len(portforward.Filter(record.PortMappings, portforward.Import)) == 0 {
 		return nil
 	}
-	if err := manager.relay.Ensure(ctx, relayOptions(record)); err != nil {
+	if err := manager.relay.Ensure(ctx, manager.relayOptions(ctx, record)); err != nil {
 		return fmt.Errorf("start host import relay: %w", err)
 	}
 	return nil

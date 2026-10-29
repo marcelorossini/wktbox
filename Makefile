@@ -61,6 +61,7 @@ e2e:
 	bash tests/e2e/automatic_loopback.sh
 	bash tests/e2e/two_worktrees.sh
 	bash tests/e2e/cross_box_connections.sh
+	bash tests/e2e/agent_workflow.sh
 
 e2e-plain-directory:
 	bash tests/e2e/plain_directory.sh

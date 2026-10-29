@@ -39,7 +39,7 @@ git:
 resources:
   cpus: 4
   memory: 8gb
-  pids: 2048
+  pids: 8192
 
 gateway:
   enabled: true
@@ -97,16 +97,31 @@ Browser CDP is `23005`. Use `urls.browserCdp` or `ports.browserCdp` from
   the workspace has no Git metadata or is below a Git root. Use it only with
   trusted repositories and hooks.
 
-`resources` is reserved. Schema v1 parses `cpus`, `memory`, and `pids` but does
-not enforce them; they are not security controls.
+`resources` limits the DinD service, and therefore every workload container of
+the box, because inner containers live in the DinD cgroup. `cpus` accepts a
+decimal CPU count, `memory` a size such as `512m` or `8gb`, and `pids` a
+maximum task count that includes threads. Omitted or zero values leave the
+limit unset, which is the default. Webtop, Chromium, and the sidecars are not
+included. These are availability guards, not security controls.
 
 `gateway.enabled` enables the optional external HTTP gateway. Each
 `gateway.routes` entry names a lowercase host label and target port. It is
 independent from automatic localhost inside Webtop.
 
-`commands` and `lifecycle` are reserved. Named commands are not executed
-automatically. `idleTimeout` and `removeOnWorktreeDelete` do not trigger
-automatic cleanup; use explicit CLI lifecycle commands and `wktbox prune`.
+`commands` names project commands for people and agents. `wktbox task` lists
+them, and `wktbox task <name> [-- args...]` runs one exactly like
+`wktbox run`, appending any extra arguments. Names use lowercase letters,
+digits, `-`, `_`, and `.`; each `command` is a non-empty argument list.
+
+`lifecycle` keeps its schema for compatibility, but automatic cleanup is not
+implemented: `idleTimeout` must be `0` and `removeOnWorktreeDelete` must be
+`false`, otherwise the configuration is rejected. Use `wktbox stop`,
+`wktbox destroy`, and `wktbox prune` explicitly.
+
+`webtop.browserCdp` (default `true`) publishes the in-box Chromium DevTools
+endpoint on host loopback. Set it to `false` when no browser automation is
+needed; the Webtop desktop stays available and `wktbox status` omits the
+endpoint.
 
 ## Automatic Webtop loopback
 

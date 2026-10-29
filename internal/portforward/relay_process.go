@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -84,6 +85,12 @@ func RunRelayProcess(ctx context.Context, options RelayProcessOptions) error {
 		return fmt.Errorf("write relay PID: %w", err)
 	}
 	defer os.Remove(options.PIDPath)
+	listenRecord := relayListenRecordPath(options.PIDPath)
+	if err := writePrivateFile(listenRecord, []byte(options.ListenAddress+"\n")); err != nil {
+		listener.Close()
+		return fmt.Errorf("write relay listen address: %w", err)
+	}
+	defer os.Remove(listenRecord)
 	relay := NewRelay(RelayOptions{
 		Token: token,
 		Resolve: func(name string) (string, bool) {
@@ -95,6 +102,40 @@ func RunRelayProcess(ctx context.Context, options RelayProcessOptions) error {
 		return nil
 	}
 	return err
+}
+
+// relayListenRecordPath stores the address a running relay listens on, next
+// to its PID file, so Ensure can detect a relay started with another bind.
+func relayListenRecordPath(pidPath string) string {
+	return strings.TrimSuffix(pidPath, ".pid") + ".listen"
+}
+
+func relayListensOn(options RelayProcessOptions) bool {
+	if options.PIDPath == "" {
+		return true
+	}
+	recorded, err := os.ReadFile(relayListenRecordPath(options.PIDPath))
+	return err == nil && strings.TrimSpace(string(recorded)) == options.ListenAddress
+}
+
+func replaceRelay(ctx context.Context, probeAddress string, token []byte) error {
+	stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	err := StopRelay(stopCtx, probeAddress, token)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("stop outdated host import relay: %w", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		probeCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		probeErr := ProbeRelay(probeCtx, probeAddress, token)
+		cancel()
+		if probeErr != nil {
+			return nil
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return fmt.Errorf("outdated host import relay %s did not stop", probeAddress)
 }
 
 func RunRelayProcessArgs(
@@ -134,7 +175,14 @@ func EnsureRelayProcess(
 	probeErr := ProbeRelay(probeCtx, probeAddress, token)
 	cancel()
 	if probeErr == nil {
-		return token, nil
+		if relayListensOn(options) {
+			return token, nil
+		}
+		// A relay from an earlier version or bind policy still answers, for
+		// example on every interface. Replace it so the current bind applies.
+		if err := replaceRelay(ctx, probeAddress, token); err != nil {
+			return nil, err
+		}
 	}
 	executable := options.Executable
 	if executable == "" {

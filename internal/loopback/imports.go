@@ -96,6 +96,9 @@ func (reconciler *ImportReconciler) Preflight(
 			if errors.Is(err, ErrImportWorkloadGone) {
 				continue
 			}
+			if spec.Container.Desktop && errors.Is(err, ErrImportPortConflict) {
+				continue
+			}
 			return importProbeError(spec, err)
 		}
 	}
@@ -137,6 +140,14 @@ func (reconciler *ImportReconciler) Apply(
 			}
 			if !errors.Is(err, ErrImportPortConflict) {
 				return nil, importProbeError(spec, err)
+			}
+			if spec.Container.Desktop {
+				// An automatic route or desktop process already owns the
+				// port. Workloads still receive the import.
+				skippedContainers[spec.Container.ID] = true
+				reconciler.warnings[key] = desktopImportWarning(spec)
+				delete(reconciler.failures, key)
+				continue
 			}
 			if mode == ImportApplyTransaction {
 				return nil, importConflict(spec, err)
@@ -402,6 +413,20 @@ func importWarning(spec ImportProxySpec) Warning {
 			"workload stopped because localhost:%d is reserved by import %q",
 			spec.Mapping.TargetPort,
 			spec.Mapping.Name,
+		),
+	}
+}
+
+func desktopImportWarning(spec ImportProxySpec) Warning {
+	return Warning{
+		Code:    "port_import_desktop_conflict",
+		Mapping: spec.Mapping.Name,
+		Port:    spec.Mapping.TargetPort,
+		Source:  spec.Container.Name,
+		Message: fmt.Sprintf(
+			"import %q is unavailable in Webtop because localhost:%d is already in use there",
+			spec.Mapping.Name,
+			spec.Mapping.TargetPort,
 		),
 	}
 }

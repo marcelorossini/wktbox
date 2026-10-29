@@ -42,7 +42,7 @@ git:
 resources:
   cpus: 4
   memory: 8gb
-  pids: 2048
+  pids: 8192
 
 gateway:
   enabled: true
@@ -126,19 +126,31 @@ wktbox --json status
   Git ou está abaixo da raiz Git. Use somente após validar o host e os hooks do
   repositório.
 
-`resources` (`cpus`, `memory`, `pids`) é reservado no schema v1. Os valores são
-lidos, mas ainda não impõem limites; não os trate como controle de segurança.
+`resources` limita o serviço DinD e, portanto, todos os containers de workload
+da box, porque os containers internos ficam no cgroup do DinD. `cpus` aceita
+uma quantidade decimal de CPUs, `memory` um tamanho como `512m` ou `8gb`, e
+`pids` o máximo de tarefas, incluindo threads. Valores omitidos ou zero não
+definem limite, que é o padrão. Webtop, Chromium e sidecars não entram nesse
+limite. São proteções de disponibilidade, não controles de segurança.
 
 `gateway.enabled` ativa o perfil externo `gateway`. Ele é opcional e
 independente do localhost automático dentro do Webtop. Cada entrada em
 `gateway.routes` tem nome DNS minúsculo e uma porta interna entre 1 e 65535. A
 rota `<nome>.<box-id>.localhost` aponta para `docker:<porta>`, com WebSockets.
 
-`commands` é reservado no schema v1. Os atalhos nomeados são lidos, mas não são
-executados automaticamente; use `wktbox run -- ...` ou `wktbox compose -- ...`.
+`commands` nomeia comandos do projeto para pessoas e agentes. `wktbox task`
+lista os comandos, e `wktbox task <nome> [-- args...]` executa um deles como
+`wktbox run`, acrescentando argumentos extras. Os nomes usam letras minúsculas,
+dígitos, `-`, `_` e `.`; cada `command` é uma lista de argumentos não vazia.
 
-`lifecycle` também é reservado. `idleTimeout` e `removeOnWorktreeDelete` não
-disparam limpeza automática no MVP.
+`lifecycle` mantém o schema por compatibilidade, mas a limpeza automática não
+existe: `idleTimeout` deve ser `0` e `removeOnWorktreeDelete` deve ser `false`,
+caso contrário a configuração é rejeitada. Use `wktbox stop`, `wktbox destroy`
+e `wktbox prune` explicitamente.
+
+`webtop.browserCdp` (padrão `true`) publica o endpoint DevTools do Chromium da
+box no loopback do host. Use `false` quando não houver automação de navegador;
+o desktop do Webtop continua disponível e `wktbox status` omite o endpoint.
 
 ## Variáveis e flags
 

@@ -97,6 +97,19 @@ existing `/config` volume. NVM stores its versions in `/config/.nvm`. Tools
 provided by the image are updated by pulling a newer Wktbox image, not by an
 automatic startup update.
 
+`wktbox run`, `exec`, and `shell` execute as the Webtop desktop user, whose UID
+and GID match the host user, with the NVM default Node.js on `PATH`. Files they
+create remain editable on the host and in the desktop editors. The user has
+passwordless `sudo`; pass `--root` to run a whole command as root. Project
+containers in DinD usually run as root, so after every `run`, `exec`, and
+`compose` Wktbox returns root-owned entries in `/workspace` and `/artifacts` to
+the host user. Entries owned by other service accounts are left untouched.
+
+`/artifacts` is box-private storage shared by Webtop and DinD, outside the
+checkout. Project containers mount it with `/artifacts:/artifacts` to hand
+reports, screenshots, or other outputs to Webtop and coding agents without
+touching the repository. It persists until the box is destroyed.
+
 ## Optional linked worktree
 
 Use a linked worktree when branch isolation is useful, not merely because
@@ -239,9 +252,11 @@ and the trust boundary.
 ## CLI
 
 - `wktbox up` creates, starts, or reconciles a box.
-- `wktbox run -- <command>` ensures readiness and runs a command.
+- `wktbox run -- <command>` ensures readiness and runs a command as the
+  workspace user; `--root` runs it as root.
 - `wktbox exec -- <command>` runs only in an already-ready box.
 - `wktbox compose -- <args>` invokes project Compose inside the isolated daemon.
+- `wktbox task [name]` lists or runs named commands from `.wktbox.yml`.
 - `wktbox shell` opens Bash, with a `sh` fallback, in `/workspace`.
 - `wktbox open` opens the known Webtop URL.
 - `wktbox list` lists known boxes.
